@@ -90,8 +90,8 @@ def login():
                     try:
                         sb.auth.sign_up({"email":email,"password":senha})
                         st.success("Conta criada. Se o Supabase pedir confirmação, abra seu e-mail e confirme antes de entrar.")
-                    except Exception as e:st.error("Não foi possível criar a conta. Verifique se o e-mail já está cadastrado.")
-
+                except Exception as e:
+    st.error(f"Erro ao criar conta: {e}")
 if "uid" not in st.session_state:
     login();st.stop()
 
