@@ -365,7 +365,7 @@ def tutorial_dialog():
     st.write("Use **📉 Dívidas** para acompanhar saldo e parcelas. Em **🎯 Metas**, registre quanto deseja juntar e quanto já guardou.")
 
     st.markdown("### 🔟 Entenda a tela Início")
-    st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro de gasto por dia. O Assistente Financeiro também mostra alertas importantes.")
+    st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro por dia. O saldo e o limite usam a mesma base do Assistente IA, Saúde Financeira e Previsão, considerando gastos, contas, recorrentes, faturas e sua meta de guardar.")
 
     st.markdown("### 1️⃣1️⃣ Consulte seus relatórios")
     st.write("Em **📊 Relatórios**, veja seus lançamentos e a distribuição dos gastos por categoria.")
@@ -447,7 +447,7 @@ if page=="🏠 Início":
     cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
     _,rec_total,rec_pendente=recurring_summary()
     # Saldo realmente livre para uso: renda disponível menos gastos já feitos e compromissos ainda pendentes.
-    saldo=max(viver+extras-gastos-pend-rec_pendente,0)
+    saldo=max(viver+extras-gastos-pend-rec_pendente-fatura,0)
     # Contas e recorrentes já foram descontados de saldo; não descontar novamente no limite diário.
     livre=max(saldo-float(cfg["reserva"]),0);diario=livre/max(dias,1)
     a,b,c,d=st.columns(4);a.metric("💵 Saldo para usar",money(saldo));b.metric("📅 Próximo pagamento",money(nv),f"{dias} dia(s)");c.metric("🐷 Guardar no mês",money(guardar),f"{cfg['pct']:.0f}% da renda");d.metric("📈 Limite seguro/dia",money(diario))
@@ -496,7 +496,7 @@ elif page=="🤖 Assistente IA":
     fatura=sum(float(x["fatura"]) for x in cards)
     recorrentes,rec_total,rec_pendente=recurring_summary()
     # O saldo informado à IA deve refletir também contas e recorrentes ainda pendentes.
-    saldo=max(renda_base+extras-gastos-guardar-pend-rec_pendente,0)
+    saldo=max(renda_base+extras-gastos-guardar-pend-rec_pendente-fatura,0)
 
     categorias={}
     recentes=[]
@@ -541,42 +541,44 @@ elif page=="🤖 Assistente IA":
     def resposta_financeira_local(pergunta_local):
         """Fallback local: responde perguntas financeiras comuns sem depender do Gemini."""
         q=(pergunta_local or "").lower()
-        dias_restantes=max((date(t.year,t.month,calendar.monthrange(t.year,t.month)[1])-t).days+1,1)
-        limite_dia=max(saldo/dias_restantes,0)
+        # Mesma regra da Home: limite seguro considera a reserva mínima e os dias até o próximo recebimento.
+        nd_ia,_=nextpay(cfg["dia2"],cfg["rec1"],cfg["rec2"])
+        dias_restantes=max((nd_ia-t).days,1)
+        limite_dia=max(saldo-float(cfg["reserva"]),0)/dias_restantes
         maior_cat=max(categorias.items(), key=lambda kv: kv[1]) if categorias else None
 
         if any(x in q for x in ["quanto posso gastar","quanto posso usar","posso gastar","disponível","disponivel"]):
-            return (f"Você pode usar até **{money(saldo)}** até o fim deste mês dentro do planejamento atual. "
-                    f"Esse valor já considera **{money(gastos)}** em gastos realizados, **{money(guardar)}** para guardar, "
-                    f"**{money(pend)}** em contas pendentes e **{money(rec_pendente)}** em recorrentes ainda pendentes. "
-                    f"Como referência, isso equivale a cerca de **{money(limite_dia)} por dia** até o fim do mês.")
+            return (f"Você pode usar até {money(saldo)} dentro do planejamento atual. "
+                    f"Esse valor já considera {money(gastos)} em gastos realizados, {money(guardar)} para guardar, "
+                    f"{money(pend)} em contas pendentes, {money(rec_pendente)} em recorrentes ainda pendentes e {money(fatura)} em faturas cadastradas. "
+                    f"Seu limite seguro é de aproximadamente {money(limite_dia)} por dia até o próximo recebimento.")
 
         if any(x in q for x in ["onde gasto","onde estou gastando","gasto mais","categoria"]):
             if maior_cat:
                 cat,val=maior_cat
-                return (f"Sua maior categoria de gastos neste mês é **{cat}**, com **{money(val)}**. "
-                        f"Seus gastos realizados somam **{money(gastos)}** no mês.")
+                return (f"Sua maior categoria de gastos neste mês é {cat}, com {money(val)}. "
+                        f"Seus gastos realizados somam {money(gastos)} no mês.")
             return "Ainda não há gastos por categoria suficientes para eu comparar neste mês."
 
         if any(x in q for x in ["como está meu mês","como esta meu mes","situação","situacao","resumo do mês","resumo do mes"]):
-            return (f"Neste mês, sua renda base é **{money(renda_base)}**, você já gastou **{money(gastos)}** e separou "
-                    f"**{money(guardar)}** para guardar. Há **{money(pend+rec_pendente)}** em compromissos ainda pendentes. "
-                    f"Seu saldo estimado para uso é **{money(saldo)}**.")
+            return (f"Neste mês, sua renda base é {money(renda_base)}, você já gastou {money(gastos)} e separou "
+                    f"{money(guardar)} para guardar. Há {money(pend+rec_pendente)} em compromissos ainda pendentes. "
+                    f"Seu saldo estimado para uso é {money(saldo)}.")
 
         if "recorrent" in q or "assinatura" in q:
-            return (f"Você tem **{money(rec_total)} por mês** em gastos recorrentes cadastrados. "
-                    f"Neste mês, **{money(rec_pendente)}** ainda está pendente.")
+            return (f"Você tem {money(rec_total)} por mês em gastos recorrentes cadastrados. "
+                    f"Neste mês, {money(rec_pendente)} ainda está pendente.")
 
         if "dívida" in q or "divida" in q:
             total_div=sum(float(x.get("saldo") or 0) for x in dividas)
-            return f"O saldo total das dívidas cadastradas é **{money(total_div)}**."
+            return f"O saldo total das dívidas cadastradas é {money(total_div)}."
 
         if "meta" in q or "guardar" in q or "econom" in q:
-            return (f"Sua meta atual de guardar no mês é **{money(guardar)}**. "
-                    f"Depois dos gastos e compromissos pendentes, o saldo estimado para uso é **{money(saldo)}**.")
+            return (f"Sua meta atual de guardar no mês é {money(guardar)}. "
+                    f"Depois dos gastos e compromissos pendentes, o saldo estimado para uso é {money(saldo)}.")
 
-        return (f"No momento, seu resumo é: renda base **{money(renda_base)}**, gastos **{money(gastos)}**, "
-                f"compromissos pendentes **{money(pend+rec_pendente)}** e saldo estimado para uso **{money(saldo)}**. "
+        return (f"No momento, seu resumo é: renda base {money(renda_base)}, gastos {money(gastos)}, "
+                f"compromissos pendentes {money(pend+rec_pendente)} e saldo estimado para uso {money(saldo)}. "
                 "Você pode perguntar, por exemplo, quanto pode gastar, onde está gastando mais, como está o mês, metas, dívidas ou recorrentes.")
 
     sugestoes=st.columns(3)
@@ -738,15 +740,16 @@ elif page=="🔮 Previsão":
     gasto_estimado=media_dia*dias_mes
     guardar=renda*float(cfg["pct"])/100
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
+    cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
     _,rec_total,rec_pendente=recurring_summary()
-    base=renda+extras-pend-rec_pendente-guardar
+    base=renda+extras-pend-rec_pendente-fatura-guardar
     projecao=base-gasto_estimado
     faltam=max(dias_mes-t.day,0)
 
     a,b,c,d=st.columns(4)
     a.metric("📆 Gasto médio/dia",money(media_dia))
     b.metric("📤 Gasto estimado no mês",money(gasto_estimado))
-    c.metric("🧾 Contas pendentes",money(pend))
+    c.metric("🧾 Compromissos pendentes",money(pend+rec_pendente+fatura))
     d.metric("🔮 Saldo projetado",money(projecao))
 
     st.subheader("Até o fim do mês")
