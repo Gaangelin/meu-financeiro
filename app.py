@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 import calendar
+import json
+import altair as alt
 from supabase import create_client
 
 st.set_page_config(page_title="Meu Financeiro Online",page_icon="💰",layout="wide",initial_sidebar_state="expanded")
@@ -281,25 +283,28 @@ def tutorial_dialog():
     st.markdown("### 2️⃣ Registre entradas e gastos")
     st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
 
-    st.markdown("### 3️⃣ Acompanhe sua Saúde Financeira")
+    st.markdown("### 3️⃣ Converse com o Assistente IA")
+    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. A IA usa um resumo dos seus dados financeiros para responder.")
+
+    st.markdown("### 4️⃣ Acompanhe sua Saúde Financeira")
     st.write("Em **🚦 Saúde Financeira**, veja quanto da sua renda está comprometida e acompanhe o indicador **Tranquilo, Atenção ou Orçamento apertado**.")
 
-    st.markdown("### 4️⃣ Veja sua Previsão Financeira")
+    st.markdown("### 5️⃣ Veja sua Previsão Financeira")
     st.write("Em **🔮 Previsão**, acompanhe uma estimativa do fim do mês com base no seu ritmo de gastos, contas pendentes e meta de economia. Você também pode comparar três cenários.")
 
-    st.markdown("### 5️⃣ Organize suas contas")
+    st.markdown("### 6️⃣ Organize suas contas")
     st.write("Em **🧾 Contas**, cadastre contas a pagar, vencimentos e marque cada uma como Pendente, Pago ou Atrasado.")
 
-    st.markdown("### 6️⃣ Acompanhe seus cartões")
+    st.markdown("### 7️⃣ Acompanhe seus cartões")
     st.write("Em **💳 Cartões**, informe limite, fatura atual, dia de fechamento e vencimento.")
 
-    st.markdown("### 7️⃣ Controle dívidas e objetivos")
+    st.markdown("### 8️⃣ Controle dívidas e objetivos")
     st.write("Use **📉 Dívidas** para acompanhar saldo e parcelas. Em **🎯 Metas**, registre quanto deseja juntar e quanto já guardou.")
 
-    st.markdown("### 8️⃣ Entenda a tela Início")
+    st.markdown("### 9️⃣ Entenda a tela Início")
     st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro de gasto por dia. O Assistente Financeiro também mostra alertas importantes.")
 
-    st.markdown("### 9️⃣ Consulte seus relatórios")
+    st.markdown("### 🔟 Consulte seus relatórios")
     st.write("Em **📊 Relatórios**, veja seus lançamentos e a distribuição dos gastos por categoria.")
 
     st.info("💡 Você pode abrir este tutorial novamente a qualquer momento pelo botão **❓ Tutorial / Ajuda** no menu lateral.")
@@ -342,7 +347,7 @@ st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
 
 st.sidebar.title("💰 Meu Financeiro")
 st.sidebar.caption(st.session_state.get("email",""))
-page=st.sidebar.radio("Menu",["🏠 Início","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
+page=st.sidebar.radio("Menu",["🏠 Início","🤖 Assistente IA","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
 
 if st.sidebar.button("❓ Tutorial / Ajuda", use_container_width=True):
     tutorial_dialog()
@@ -386,8 +391,135 @@ if page=="🏠 Início":
     else:st.success(f"Tudo dentro do planejado. Preserve {money(guardar)} e tente gastar até {money(diario)} por dia.")
     st.subheader("Visão geral");x,y,z,w=st.columns(4);x.metric("Receita mensal",money(sal+extras));y.metric("Gastos",money(gastos));z.metric("Contas pendentes",money(pend));w.metric("Faturas",money(fatura))
     if len(mm):
-        s=mm[mm.tipo=="Saída"].groupby("categoria")["valor"].sum()
-        if len(s):st.subheader("Gastos por categoria");st.bar_chart(s)
+        s=mm[mm.tipo=="Saída"].groupby("categoria")["valor"].sum().reset_index()
+        if len(s):
+            st.subheader("Gastos por categoria")
+            graf=alt.Chart(s).mark_bar(cornerRadiusTopLeft=6,cornerRadiusTopRight=6).encode(
+                x=alt.X("categoria:N",title=None,sort="-y"),
+                y=alt.Y("valor:Q",title="Valor (R$)"),
+                tooltip=[alt.Tooltip("categoria:N",title="Categoria"),alt.Tooltip("valor:Q",title="Valor",format=",.2f")]
+            ).properties(height=300,background="white").configure_axis(
+                labelColor="#172033",titleColor="#172033",gridColor="#E7EBF2"
+            ).configure_view(strokeOpacity=0)
+            st.altair_chart(graf,use_container_width=True)
+
+elif page=="🤖 Assistente IA":
+    st.title("🤖 Assistente Financeiro IA")
+    st.caption("Converse sobre seus próprios dados financeiros. O assistente analisa informações da sua conta, mas não movimenta dinheiro e não acessa senhas ou dados completos de cartão.")
+
+    # Monta um resumo financeiro limitado ao usuário autenticado.
+    t=date.today();ini=t.replace(day=1);fim=date(t.year,t.month,calendar.monthrange(t.year,t.month)[1])
+    mov=pd.DataFrame(myrows("mov","data"))
+    if len(mov):
+        mov["data"]=pd.to_datetime(mov["data"]).dt.date
+        mm=mov[(mov.data>=ini)&(mov.data<=fim)].copy()
+    else:mm=pd.DataFrame()
+
+    gastos=float(mm.loc[mm.tipo=="Saída","valor"].sum()) if len(mm) else 0
+    extras=float(mm.loc[mm.tipo=="Entrada","valor"].sum()) if len(mm) else 0
+    renda_base=float(cfg["rec1"]+cfg["rec2"])
+    guardar=renda_base*float(cfg["pct"])/100
+    contas=myrows("contas")
+    cards=myrows("cartoes")
+    dividas=myrows("dividas")
+    metas=myrows("metas")
+    pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
+    fatura=sum(float(x["fatura"]) for x in cards)
+    saldo=max(renda_base+extras-gastos-guardar,0)
+
+    categorias={}
+    recentes=[]
+    if len(mm):
+        saidas=mm[mm.tipo=="Saída"]
+        if len(saidas):
+            categorias={str(k):float(v) for k,v in saidas.groupby("categoria")["valor"].sum().items()}
+        cols=[c for c in ["data","descricao","categoria","tipo","forma","valor"] if c in mm.columns]
+        recentes=mm.sort_values("data",ascending=False)[cols].head(20).copy()
+        if len(recentes):
+            recentes["data"]=recentes["data"].astype(str)
+            recentes=recentes.to_dict("records")
+
+    resumo={
+        "mes":t.strftime("%Y-%m"),
+        "renda_base":renda_base,
+        "entradas_extras":extras,
+        "gastos_registrados":gastos,
+        "meta_guardar":guardar,
+        "saldo_estimado_para_uso":saldo,
+        "contas_pendentes":pend,
+        "faturas_cadastradas":fatura,
+        "reserva_minima":float(cfg["reserva"]),
+        "gastos_por_categoria":categorias,
+        "dividas":[{"nome":x.get("nome"),"saldo":x.get("saldo"),"parcela":x.get("parcela"),"restantes":x.get("restantes")} for x in dividas],
+        "metas":[{"nome":x.get("nome"),"desejado":x.get("desejado"),"guardado":x.get("guardado")} for x in metas],
+        "movimentacoes_recentes":recentes
+    }
+
+    a,b,c,d=st.columns(4)
+    a.metric("💰 Renda base",money(renda_base))
+    b.metric("📤 Gastos do mês",money(gastos))
+    c.metric("🧾 Contas pendentes",money(pend))
+    d.metric("💳 Faturas",money(fatura))
+
+    st.info("🔒 Para responder, a IA recebe apenas o resumo financeiro acima e movimentações recentes da sua própria conta. Nunca informe senha bancária, CVV ou número completo de cartão no chat.")
+
+    sugestoes=st.columns(3)
+    if sugestoes[0].button("💸 Quanto posso gastar?",use_container_width=True):
+        st.session_state.ai_question="Quanto posso gastar até o fim deste mês sem comprometer minha meta de guardar e minha reserva?"
+    if sugestoes[1].button("📊 Onde gasto mais?",use_container_width=True):
+        st.session_state.ai_question="Analise onde estou gastando mais neste mês e explique de forma curta."
+    if sugestoes[2].button("🔮 Como está meu mês?",use_container_width=True):
+        st.session_state.ai_question="Faça um resumo da minha situação financeira neste mês e destaque os pontos que merecem atenção."
+
+    pergunta=st.chat_input("Pergunte algo sobre suas finanças...")
+    if pergunta:
+        st.session_state.ai_question=pergunta
+
+    if "ai_history" not in st.session_state:
+        st.session_state.ai_history=[]
+
+    for item in st.session_state.ai_history[-8:]:
+        with st.chat_message(item["role"]):
+            st.markdown(item["content"])
+
+    pergunta_atual=st.session_state.pop("ai_question",None)
+    if pergunta_atual:
+        with st.chat_message("user"):
+            st.markdown(pergunta_atual)
+
+        api_key=st.secrets.get("OPENAI_API_KEY",None)
+        if not api_key:
+            resposta="O Assistente IA está pronto, mas falta adicionar a chave da API nas configurações seguras do Streamlit. Depois disso, esta conversa passa a funcionar com seus dados."
+        else:
+            try:
+                from openai import OpenAI
+                client=OpenAI(api_key=api_key)
+                instrucoes="""Você é o Assistente Financeiro do aplicativo Meu Financeiro.
+Responda sempre em português do Brasil, de forma clara, curta e prática.
+Use SOMENTE os dados financeiros fornecidos no contexto. Se faltar informação, diga que não há dados suficientes.
+Não invente valores. Não prometa retornos. Não faça movimentações financeiras.
+Quando houver cálculo, explique o resultado de forma simples.
+Trate projeções como estimativas, não garantias.
+Nunca peça senha bancária, CVV, número completo de cartão ou credenciais.
+Ajude o usuário a entender opções e consequências, preservando a decisão final dele."""
+                contexto="DADOS FINANCEIROS DO USUÁRIO:\n"+json.dumps(resumo,ensure_ascii=False,default=str)
+                resp=client.responses.create(
+                    model="gpt-5.6-luna",
+                    instructions=instrucoes,
+                    input=contexto+"\n\nPERGUNTA DO USUÁRIO:\n"+pergunta_atual
+                )
+                resposta=resp.output_text
+            except Exception as e:
+                resposta=f"Não consegui consultar a IA agora. Verifique a configuração da API e tente novamente. Detalhe técnico: {e}"
+
+        with st.chat_message("assistant"):
+            st.markdown(resposta)
+        st.session_state.ai_history.append({"role":"user","content":pergunta_atual})
+        st.session_state.ai_history.append({"role":"assistant","content":resposta})
+
+    if st.button("🧹 Limpar conversa"):
+        st.session_state.ai_history=[]
+        st.rerun()
 
 elif page=="🚦 Saúde Financeira":
     st.title("🚦 Saúde Financeira")
