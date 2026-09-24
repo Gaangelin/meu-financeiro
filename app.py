@@ -120,6 +120,42 @@ def sync_recurring_payments():
             sb.table("mov").delete().eq("user_id",st.session_state.uid).eq("obs",marker).execute()
             markers.discard(marker)
 
+def installment_summary():
+    """Retorna parcelamentos ativos e a parcela que ainda precisa ser paga no mês atual."""
+    try:
+        itens=myrows("parcelamentos","dia_vencimento")
+    except Exception:
+        return [],0.0
+    mes=date.today().strftime("%Y-%m")
+    ativos=[x for x in itens if bool(x.get("ativo",True)) and int(x.get("parcelas_pagas") or 0) < int(x.get("total_parcelas") or 0)]
+    pendente=sum(float(x.get("valor_parcela") or 0) for x in ativos if x.get("ultimo_pago_mes") != mes)
+    return ativos,pendente
+
+def sync_installment_payments():
+    """Cria/remove o gasto da parcela do mês e mantém o contador de parcelas sincronizado."""
+    mes=date.today().strftime("%Y-%m")
+    hoje=date.today().isoformat()
+    try:
+        itens=myrows("parcelamentos","dia_vencimento")
+        movs=myrows("mov","data")
+    except Exception:
+        return
+    markers={str(x.get("obs") or "") for x in movs}
+    for x in itens:
+        marker=f"PARCELA_AUTO:{x['id']}:{mes}"
+        pago=x.get("ultimo_pago_mes")==mes
+        existe=marker in markers
+        if pago and not existe:
+            sb.table("mov").insert({
+                "user_id":st.session_state.uid,"data":hoje,
+                "descricao":str(x.get("nome") or "Compra parcelada"),
+                "categoria":str(x.get("categoria") or "Compras"),
+                "tipo":"Saída","forma":str(x.get("forma") or "Crédito"),
+                "valor":float(x.get("valor_parcela") or 0),"obs":marker
+            }).execute(); markers.add(marker)
+        elif (not pago) and existe:
+            sb.table("mov").delete().eq("user_id",st.session_state.uid).eq("obs",marker).execute(); markers.discard(marker)
+
 def ensure_config():
     r=sb.table("config").select("*").eq("user_id",st.session_state.uid).execute().data
     if not r:
@@ -355,6 +391,9 @@ def tutorial_dialog():
     st.markdown("### 6️⃣ Cadastre gastos recorrentes")
     st.write("Em **🔁 Recorrentes**, cadastre compromissos que se repetem todos os meses, como internet, streaming, academia e mensalidades. Marque como pago no mês para evitar que o valor continue aparecendo como compromisso pendente.")
 
+    st.markdown("### 7️⃣ Controle compras parceladas")
+    st.write("Em **💳 Parcelamentos**, informe a compra, valor da parcela, total de parcelas e quantas já foram pagas. O sistema mostra o progresso, saldo restante, próxima parcela e inclui automaticamente a parcela pendente nos cálculos e vencimentos. Ao marcar a parcela do mês como paga, ela vira gasto realizado sem ser contada duas vezes.")
+
     st.markdown("### 7️⃣ Organize suas contas")
     st.write("Em **🧾 Contas**, cadastre contas a pagar, vencimentos e marque cada uma como Pendente, Pago ou Atrasado.")
 
@@ -408,6 +447,7 @@ if "uid" not in st.session_state or not st.session_state.get("access_token"):
 cfg=ensure_config()
 # V8: transforma recorrentes marcados como pagos em gastos realizados e reconcilia dados antigos.
 sync_recurring_payments()
+sync_installment_payments()
 st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
 
 st.sidebar.title("💰 Meu Financeiro")
@@ -450,7 +490,7 @@ def sugerir_categoria(descricao):
             return categoria
     return "Outros"
 
-page=st.sidebar.radio("Menu",["🏠 Início","🤖 Assistente IA","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🔁 Recorrentes","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
+page=st.sidebar.radio("Menu",["🏠 Início","🤖 Assistente IA","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🔁 Recorrentes","💳 Parcelamentos","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
 
 if st.sidebar.button("❓ Tutorial / Ajuda", use_container_width=True):
     tutorial_dialog()
@@ -484,8 +524,9 @@ if page=="🏠 Início":
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
     _,rec_total,rec_pendente=recurring_summary()
+    _,parc_pendente=installment_summary()
     # Saldo realmente livre para uso: renda disponível menos gastos já feitos e compromissos ainda pendentes.
-    saldo=max(viver+extras-gastos-pend-rec_pendente-fatura,0)
+    saldo=max(viver+extras-gastos-pend-rec_pendente-parc_pendente-fatura,0)
     # Contas e recorrentes já foram descontados de saldo; não descontar novamente no limite diário.
     livre=max(saldo-float(cfg["reserva"]),0);diario=livre/max(dias,1)
     a,b,c,d=st.columns(4);a.metric("💵 Saldo para usar",money(saldo));b.metric("📅 Próximo pagamento",money(nv),f"{dias} dia(s)");c.metric("🐷 Guardar no mês",money(guardar),f"{cfg['pct']:.0f}% da renda");d.metric("📈 Limite seguro/dia",money(diario))
@@ -496,7 +537,7 @@ if page=="🏠 Início":
     elif viver>0 and gastos>=viver*.9:st.error("Não gaste muito: você já utilizou quase todo o dinheiro planejado.")
     elif viver>0 and gastos>=viver*.7:st.warning(f"Cuidado. Até receber, tente ficar abaixo de {money(diario)} por dia.")
     else:st.success(f"Tudo dentro do planejado. Preserve {money(guardar)} e tente gastar até {money(diario)} por dia.")
-    st.subheader("Visão geral");x,y,z,w=st.columns(4);x.metric("Receita mensal",money(sal+extras));y.metric("Gastos",money(gastos));z.metric("Contas + recorrentes",money(pend+rec_pendente));w.metric("Faturas",money(fatura))
+    st.subheader("Visão geral");x,y,z,w=st.columns(4);x.metric("Receita mensal",money(sal+extras));y.metric("Gastos",money(gastos));z.metric("Contas + compromissos",money(pend+rec_pendente+parc_pendente));w.metric("Faturas",money(fatura))
 
     # V13 — Vencimentos inteligentes: exibe somente compromissos ainda pendentes.
     vencimentos=[]
@@ -519,10 +560,22 @@ if page=="🏠 Início":
             vencimentos.append({"nome":rec.get("nome") or "Recorrente","valor":float(rec.get("valor") or 0),"data":dv,"origem":"Recorrente"})
         except Exception:
             pass
+    parc_itens,_=installment_summary()
+    for parc in parc_itens:
+        if parc.get("ultimo_pago_mes") == mes_atual:
+            continue
+        try:
+            dia_parc=max(1,min(int(parc.get("dia_vencimento") or 1),calendar.monthrange(t.year,t.month)[1]))
+            dv=date(t.year,t.month,dia_parc)
+            atual=int(parc.get("parcelas_pagas") or 0)+1
+            total=int(parc.get("total_parcelas") or 0)
+            vencimentos.append({"nome":f"{parc.get('nome') or 'Parcelamento'} ({atual}/{total})","valor":float(parc.get("valor_parcela") or 0),"data":dv,"origem":"Parcelamento"})
+        except Exception:
+            pass
     vencimentos.sort(key=lambda x:x["data"])
     if vencimentos:
         st.subheader("🔔 Próximos vencimentos")
-        st.caption("Contas e recorrentes ainda não pagos. Itens pagos no mês deixam de aparecer aqui automaticamente.")
+        st.caption("Contas, recorrentes e parcelas ainda não pagos. Itens pagos no mês deixam de aparecer aqui automaticamente.")
         for item in vencimentos[:8]:
             delta=(item["data"]-t).days
             if delta < 0:
@@ -537,7 +590,7 @@ if page=="🏠 Início":
             else:
                 st.write(f"⚪ **{item['nome']} — {money(item['valor'])}** · vence em {delta} dia(s) ({item['data'].strftime('%d/%m')})")
     else:
-        st.success("🔔 Nenhuma conta ou recorrente pendente para vencer neste mês.")
+        st.success("🔔 Nenhuma conta, recorrente ou parcela pendente para vencer neste mês.")
 
     if len(mm):
         s=mm[mm.tipo=="Saída"].groupby("categoria")["valor"].sum().reset_index()
@@ -576,7 +629,7 @@ elif page=="🤖 Assistente IA":
     fatura=sum(float(x["fatura"]) for x in cards)
     recorrentes,rec_total,rec_pendente=recurring_summary()
     # O saldo informado à IA deve refletir também contas e recorrentes ainda pendentes.
-    saldo=max(renda_base+extras-gastos-guardar-pend-rec_pendente-fatura,0)
+    saldo=max(renda_base+extras-gastos-guardar-pend-rec_pendente-parc_pendente-fatura,0)
 
     categorias={}
     recentes=[]
@@ -771,7 +824,8 @@ elif page=="🚦 Saúde Financeira":
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
     _,rec_total,rec_pendente=recurring_summary()
-    compromissos=gastos+pend+fatura+rec_pendente
+    _,parc_pendente=installment_summary()
+    compromissos=gastos+pend+fatura+rec_pendente+parc_pendente
     livre=renda-guardar-compromissos
     taxa=(compromissos/renda*100) if renda>0 else 0
 
@@ -797,6 +851,7 @@ elif page=="🚦 Saúde Financeira":
     st.write(f"**Contas pendentes:** {money(pend)}")
     st.write(f"**Faturas cadastradas:** {money(fatura)}")
     st.write(f"**Recorrentes ainda pendentes no mês:** {money(rec_pendente)}")
+    st.write(f"**Parcelas ainda pendentes no mês:** {money(parc_pendente)}")
     if renda>0:
         if livre>float(cfg["reserva"]): st.success(f"Após compromissos e sua meta de economia, a projeção livre é de {money(livre)}.")
         elif livre>0: st.warning(f"A projeção livre é de {money(livre)}, próxima ou abaixo da sua reserva mínima.")
@@ -822,14 +877,15 @@ elif page=="🔮 Previsão":
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
     _,rec_total,rec_pendente=recurring_summary()
-    base=renda+extras-pend-rec_pendente-fatura-guardar
+    _,parc_pendente=installment_summary()
+    base=renda+extras-pend-rec_pendente-parc_pendente-fatura-guardar
     projecao=base-gasto_estimado
     faltam=max(dias_mes-t.day,0)
 
     a,b,c,d=st.columns(4)
     a.metric("📆 Gasto médio/dia",money(media_dia))
     b.metric("📤 Gasto estimado no mês",money(gasto_estimado))
-    c.metric("🧾 Compromissos pendentes",money(pend+rec_pendente+fatura))
+    c.metric("🧾 Compromissos pendentes",money(pend+rec_pendente+parc_pendente+fatura))
     d.metric("🔮 Saldo projetado",money(projecao))
 
     st.subheader("Até o fim do mês")
@@ -980,6 +1036,55 @@ elif page=="🔁 Recorrentes":
                     sb.table("recorrentes").update({"ativo":False}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
     else:
         st.info("Nenhum gasto recorrente cadastrado ainda.")
+
+elif page=="💳 Parcelamentos":
+    st.title("💳 Compras Parceladas")
+    st.caption("Acompanhe compras com número definido de parcelas. A parcela do mês entra automaticamente no planejamento enquanto estiver pendente.")
+    with st.form("novo_parcelamento",clear_on_submit=True):
+        nome=st.text_input("Compra",placeholder="Ex.: iPhone, TV, Notebook")
+        a,b=st.columns(2)
+        valor=a.number_input("Valor da parcela",min_value=0.0,step=10.0)
+        total=b.number_input("Total de parcelas",min_value=1,max_value=120,value=10,step=1)
+        a,b=st.columns(2)
+        pagas=a.number_input("Parcelas já pagas",min_value=0,max_value=120,value=0,step=1)
+        dia=b.number_input("Dia do vencimento",min_value=1,max_value=31,value=10,step=1)
+        a,b=st.columns(2)
+        categoria=a.selectbox("Categoria",["Compras","Moradia","Transporte","Saúde","Lazer","Outros"])
+        forma=b.selectbox("Forma de pagamento",["Crédito","Pix","Boleto","Débito","Outros"])
+        if st.form_submit_button("➕ Adicionar parcelamento",use_container_width=True):
+            if not nome.strip() or valor<=0 or int(pagas)>=int(total):
+                st.error("Informe a compra, um valor maior que zero e deixe pelo menos uma parcela restante.")
+            else:
+                sb.table("parcelamentos").insert({"user_id":st.session_state.uid,"nome":nome.strip(),"categoria":categoria,"valor_parcela":float(valor),"total_parcelas":int(total),"parcelas_pagas":int(pagas),"dia_vencimento":int(dia),"forma":forma,"ativo":True,"ultimo_pago_mes":None}).execute(); st.rerun()
+    itens,pendente=installment_summary()
+    total_restante=sum(float(x.get("valor_parcela") or 0)*(int(x.get("total_parcelas") or 0)-int(x.get("parcelas_pagas") or 0)) for x in itens)
+    a,b,c=st.columns(3);a.metric("Parcelamentos ativos",len(itens));b.metric("Pendente neste mês",money(pendente));c.metric("Saldo parcelado restante",money(total_restante))
+    st.subheader("Seus parcelamentos")
+    mes=date.today().strftime("%Y-%m")
+    for x in itens:
+        total=int(x.get("total_parcelas") or 0); pagas=int(x.get("parcelas_pagas") or 0); vp=float(x.get("valor_parcela") or 0)
+        atual=min(pagas+1,total); restante=max(total-pagas,0); pct=(pagas/total) if total else 0
+        st.markdown(f"**{x.get('nome')}** · {money(vp)} por parcela · **{pagas}/{total} pagas** · faltam **{restante}** · restante {money(vp*restante)}")
+        st.progress(min(max(pct,0),1),text=f"{pct*100:.0f}% concluído")
+        a,b=st.columns([3,1])
+        a.caption(f"Próxima: parcela {atual}/{total} · dia {int(x.get('dia_vencimento') or 1)} · {x.get('forma') or 'Outros'}")
+        pago=x.get("ultimo_pago_mes")==mes
+        if not pago:
+            if b.button("✅ Pagar parcela do mês",key=f"parc_pay_{x['id']}",use_container_width=True):
+                sb.table("parcelamentos").update({"ultimo_pago_mes":mes,"parcelas_pagas":min(pagas+1,total)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); sync_installment_payments(); st.rerun()
+        else:
+            if b.button("↩️ Desmarcar",key=f"parc_unpay_{x['id']}",use_container_width=True):
+                sb.table("parcelamentos").update({"ultimo_pago_mes":None,"parcelas_pagas":max(pagas-1,0)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); sync_installment_payments(); st.rerun()
+        with st.expander(f"Editar / desativar — {x.get('nome')}"):
+            novo_nome=st.text_input("Nome",value=str(x.get("nome") or ""),key=f"pn_{x['id']}")
+            novo_valor=st.number_input("Valor da parcela",min_value=0.0,value=vp,key=f"pv_{x['id']}")
+            novo_dia=st.number_input("Dia do vencimento",min_value=1,max_value=31,value=int(x.get("dia_vencimento") or 1),key=f"pd_{x['id']}")
+            if st.button("💾 Salvar alterações",key=f"ps_{x['id']}"):
+                sb.table("parcelamentos").update({"nome":novo_nome,"valor_parcela":float(novo_valor),"dia_vencimento":int(novo_dia)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); st.rerun()
+            if st.button("🗑️ Desativar parcelamento",key=f"px_{x['id']}"):
+                sb.table("parcelamentos").update({"ativo":False}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); st.rerun()
+        st.divider()
+    if not itens: st.info("Nenhum parcelamento ativo cadastrado.")
 
 elif page=="🧾 Contas":
     st.title("🧾 Contas")
