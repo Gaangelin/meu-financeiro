@@ -862,7 +862,36 @@ elif page=="➕ Registrar":
                 st.success("Lançamento salvo. Sua escolha de categoria será reaproveitada quando a mesma descrição aparecer novamente.")
             st.session_state["_limpar_mov_desc"] = True
             st.rerun()
-    st.dataframe(pd.DataFrame(myrows("mov","data")),use_container_width=True,hide_index=True)
+    movimentos = myrows("mov","data")
+    st.dataframe(pd.DataFrame(movimentos),use_container_width=True,hide_index=True)
+
+    if movimentos:
+        st.subheader("✏️ Gerenciar lançamentos")
+        st.caption("Edite um lançamento incorreto ou exclua-o com confirmação. As alterações atualizam os cálculos do sistema.")
+        for m in movimentos:
+            mid = m.get("id")
+            titulo = f"{m.get('descricao','Sem descrição')} — {money(m.get('valor',0))} — {m.get('data','')}"
+            with st.expander(titulo):
+                with st.form(f"editar_mov_{mid}"):
+                    e_desc = st.text_input("Descrição", value=str(m.get("descricao", "")), key=f"ed_desc_{mid}")
+                    e_cat = st.selectbox("Categoria", categorias, index=(categorias.index(m.get("categoria")) if m.get("categoria") in categorias else len(categorias)-1), key=f"ed_cat_{mid}")
+                    e_tipo = st.selectbox("Tipo", ["Saída","Entrada"], index=(0 if m.get("tipo") != "Entrada" else 1), key=f"ed_tipo_{mid}")
+                    e_forma_opts=["Pix","Débito","Crédito","Dinheiro","Outro"]
+                    e_forma = st.selectbox("Forma", e_forma_opts, index=(e_forma_opts.index(m.get("forma")) if m.get("forma") in e_forma_opts else 4), key=f"ed_forma_{mid}")
+                    e_valor = st.number_input("Valor", min_value=0.0, value=float(m.get("valor") or 0), step=1.0, key=f"ed_valor_{mid}")
+                    e_obs = st.text_input("Observação", value=str(m.get("obs") or ""), key=f"ed_obs_{mid}")
+                    if st.form_submit_button("💾 Salvar alterações", use_container_width=True):
+                        if not e_desc.strip() or e_valor <= 0:
+                            st.warning("Informe uma descrição e um valor maior que zero.")
+                        else:
+                            sb.table("mov").update({"descricao":e_desc.strip(),"categoria":e_cat,"tipo":e_tipo,"forma":e_forma,"valor":e_valor,"obs":e_obs}).eq("id",mid).eq("user_id",st.session_state.uid).execute()
+                            st.success("Lançamento atualizado.")
+                            st.rerun()
+                confirmar = st.checkbox("Confirmo que quero excluir este lançamento", key=f"conf_del_{mid}")
+                if st.button("🗑️ Excluir lançamento", key=f"del_mov_{mid}", disabled=not confirmar, use_container_width=True):
+                    sb.table("mov").delete().eq("id",mid).eq("user_id",st.session_state.uid).execute()
+                    st.success("Lançamento excluído.")
+                    st.rerun()
 
 elif page=="🔁 Recorrentes":
     st.title("🔁 Gastos Recorrentes")
