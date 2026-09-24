@@ -65,25 +65,109 @@ def ensure_config():
         r=sb.table("config").select("*").eq("user_id",st.session_state.uid).execute().data
     return r[0]
 
+APP_URL = "https://meu-financeiro-2027.streamlit.app"
+
+# Restaura a sessão autenticada do Supabase a cada rerun do Streamlit.
+def restore_session():
+    access_token = st.session_state.get("access_token")
+    refresh_token = st.session_state.get("refresh_token")
+    if access_token and refresh_token:
+        try:
+            session = sb.auth.set_session(access_token, refresh_token)
+            if session and session.session:
+                st.session_state.access_token = session.session.access_token
+                st.session_state.refresh_token = session.session.refresh_token
+            return True
+        except Exception:
+            for k in ["uid", "email", "access_token", "refresh_token"]:
+                st.session_state.pop(k, None)
+    return False
+
+
+def save_auth_session(result):
+    if not result or not result.user or not result.session:
+        return False
+    st.session_state.uid = result.user.id
+    st.session_state.email = result.user.email
+    st.session_state.access_token = result.session.access_token
+    st.session_state.refresh_token = result.session.refresh_token
+    return True
+
+
+def handle_auth_callback():
+    # Links de confirmação/recuperação do Supabase podem voltar com ?code=...
+    code = st.query_params.get("code")
+    if code and not st.session_state.get("access_token"):
+        try:
+            result = sb.auth.exchange_code_for_session({"auth_code": code})
+            if save_auth_session(result):
+                st.session_state.reset_mode = True
+                st.query_params.clear()
+                st.rerun()
+        except Exception as e:
+            st.error(f"Não foi possível validar o link recebido por e-mail: {e}")
+
+
+def reset_password_screen():
+    st.title("🔑 Criar nova senha")
+    st.caption("Digite sua nova senha para concluir a recuperação da conta.")
+    with st.form("new_password"):
+        senha = st.text_input("Nova senha", type="password")
+        senha2 = st.text_input("Repita a nova senha", type="password")
+        if st.form_submit_button("Salvar nova senha", use_container_width=True):
+            if len(senha) < 6:
+                st.error("Use uma senha com pelo menos 6 caracteres.")
+            elif senha != senha2:
+                st.error("As senhas não são iguais.")
+            else:
+                try:
+                    sb.auth.update_user({"password": senha})
+                    st.session_state.reset_mode = False
+                    st.success("Senha alterada com sucesso. Você já pode continuar usando sua conta.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Não foi possível alterar a senha: {e}")
+
+
 def login():
     st.title("💰 Meu Financeiro Online")
     st.caption("Entre na sua conta para acessar seus dados financeiros.")
-    tab1,tab2=st.tabs(["Entrar","Criar conta"])
+    tab1, tab2 = st.tabs(["Entrar", "Criar conta"])
+
     with tab1:
         with st.form("login"):
-            email=st.text_input("E-mail")
-            senha=st.text_input("Senha",type="password")
-            if st.form_submit_button("Entrar",use_container_width=True):
+            email = st.text_input("E-mail")
+            senha = st.text_input("Senha", type="password")
+            if st.form_submit_button("Entrar", use_container_width=True):
                 try:
-                    r=sb.auth.sign_in_with_password({"email":email,"password":senha})
-                    st.session_state.uid=r.user.id;st.session_state.email=r.user.email;st.rerun()
-                except Exception:st.error("E-mail ou senha incorretos, ou conta ainda não confirmada.")
+                    r = sb.auth.sign_in_with_password({"email": email, "password": senha})
+                    if save_auth_session(r):
+                        st.rerun()
+                    else:
+                        st.error("Não foi possível iniciar a sessão.")
+                except Exception as e:
+                    st.error(f"Não foi possível entrar: {e}")
+
+        with st.expander("🔑 Esqueci minha senha"):
+            recovery_email = st.text_input("E-mail da conta", key="recovery_email")
+            if st.button("Enviar e-mail de recuperação", use_container_width=True):
+                if not recovery_email.strip():
+                    st.warning("Informe seu e-mail.")
+                else:
+                    try:
+                        sb.auth.reset_password_for_email(
+                            recovery_email.strip(),
+                            {"redirect_to": APP_URL}
+                        )
+                        st.success("E-mail de recuperação enviado. Abra a mensagem e clique no link para criar uma nova senha.")
+                    except Exception as e:
+                        st.error(f"Não foi possível enviar o e-mail de recuperação: {e}")
+
     with tab2:
         with st.form("signup"):
             email = st.text_input("Seu e-mail", key="se")
             senha = st.text_input("Crie uma senha", type="password", key="ss")
             senha2 = st.text_input("Repita a senha", type="password")
-
             if st.form_submit_button("Criar minha conta", use_container_width=True):
                 if len(senha) < 6:
                     st.error("Use uma senha com pelo menos 6 caracteres.")
@@ -91,24 +175,45 @@ def login():
                     st.error("As senhas não são iguais.")
                 else:
                     try:
-                        sb.auth.sign_up({
+                        r = sb.auth.sign_up({
                             "email": email,
-                            "password": senha
+                            "password": senha,
+                            "options": {"email_redirect_to": APP_URL}
                         })
-                        st.success("Conta criada. Verifique seu e-mail para confirmar a conta antes de entrar.")
+                        if r.session:
+                            save_auth_session(r)
+                            st.success("Conta criada com sucesso.")
+                            st.rerun()
+                        else:
+                            st.success("Conta criada. Verifique seu e-mail e confirme a conta antes de entrar.")
                     except Exception as e:
                         st.error(f"Erro ao criar conta: {e}")
-if "uid" not in st.session_state:
-    login();st.stop()
+
+
+handle_auth_callback()
+
+if st.session_state.get("access_token"):
+    restore_session()
+
+if st.session_state.get("reset_mode"):
+    reset_password_screen()
+    st.stop()
+
+if "uid" not in st.session_state or not st.session_state.get("access_token"):
+    login()
+    st.stop()
 
 cfg=ensure_config()
 st.sidebar.title("💰 Meu Financeiro")
 st.sidebar.caption(st.session_state.get("email",""))
 page=st.sidebar.radio("Menu",["🏠 Início","➕ Registrar","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
 if st.sidebar.button("🚪 Sair",use_container_width=True):
-    try:sb.auth.sign_out()
-    except:pass
-    st.session_state.clear();st.rerun()
+    try:
+        sb.auth.sign_out()
+    except Exception:
+        pass
+    st.session_state.clear()
+    st.rerun()
 st.sidebar.divider();st.sidebar.caption("🔒 Cada conta acessa somente os próprios dados.")
 
 if page=="🏠 Início":
