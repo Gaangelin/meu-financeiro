@@ -276,24 +276,30 @@ def tutorial_dialog():
     st.caption("Guia rápido para você saber onde começar e para que serve cada área.")
 
     st.markdown("### 1️⃣ Configure sua renda")
-    st.write("Abra **⚙️ Configurações** e informe o 1º e o 2º recebimento, o percentual que deseja guardar e a sua reserva mínima.")
+    st.write("Abra **⚙️ Configurações** e informe seus recebimentos, o percentual que deseja guardar e a sua reserva mínima.")
 
     st.markdown("### 2️⃣ Registre entradas e gastos")
     st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
 
-    st.markdown("### 3️⃣ Organize suas contas")
+    st.markdown("### 3️⃣ Acompanhe sua Saúde Financeira")
+    st.write("Em **🚦 Saúde Financeira**, veja quanto da sua renda está comprometida e acompanhe o indicador **Tranquilo, Atenção ou Orçamento apertado**.")
+
+    st.markdown("### 4️⃣ Veja sua Previsão Financeira")
+    st.write("Em **🔮 Previsão**, acompanhe uma estimativa do fim do mês com base no seu ritmo de gastos, contas pendentes e meta de economia. Você também pode comparar três cenários.")
+
+    st.markdown("### 5️⃣ Organize suas contas")
     st.write("Em **🧾 Contas**, cadastre contas a pagar, vencimentos e marque cada uma como Pendente, Pago ou Atrasado.")
 
-    st.markdown("### 4️⃣ Acompanhe seus cartões")
+    st.markdown("### 6️⃣ Acompanhe seus cartões")
     st.write("Em **💳 Cartões**, informe limite, fatura atual, dia de fechamento e vencimento.")
 
-    st.markdown("### 5️⃣ Controle dívidas e objetivos")
+    st.markdown("### 7️⃣ Controle dívidas e objetivos")
     st.write("Use **📉 Dívidas** para acompanhar saldo e parcelas. Em **🎯 Metas**, registre quanto deseja juntar e quanto já guardou.")
 
-    st.markdown("### 6️⃣ Entenda a tela Início")
-    st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro de gasto por dia. O Assistente Financeiro avisa quando os gastos estiverem se aproximando do planejado.")
+    st.markdown("### 8️⃣ Entenda a tela Início")
+    st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro de gasto por dia. O Assistente Financeiro também mostra alertas importantes.")
 
-    st.markdown("### 7️⃣ Consulte seus relatórios")
+    st.markdown("### 9️⃣ Consulte seus relatórios")
     st.write("Em **📊 Relatórios**, veja seus lançamentos e a distribuição dos gastos por categoria.")
 
     st.info("💡 Você pode abrir este tutorial novamente a qualquer momento pelo botão **❓ Tutorial / Ajuda** no menu lateral.")
@@ -336,7 +342,7 @@ st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
 
 st.sidebar.title("💰 Meu Financeiro")
 st.sidebar.caption(st.session_state.get("email",""))
-page=st.sidebar.radio("Menu",["🏠 Início","➕ Registrar","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
+page=st.sidebar.radio("Menu",["🏠 Início","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
 
 if st.sidebar.button("❓ Tutorial / Ajuda", use_container_width=True):
     tutorial_dialog()
@@ -382,6 +388,102 @@ if page=="🏠 Início":
     if len(mm):
         s=mm[mm.tipo=="Saída"].groupby("categoria")["valor"].sum()
         if len(s):st.subheader("Gastos por categoria");st.bar_chart(s)
+
+elif page=="🚦 Saúde Financeira":
+    st.title("🚦 Saúde Financeira")
+    st.caption("Entenda rapidamente como está sua situação financeira com base nos dados cadastrados.")
+
+    t=date.today();ini=t.replace(day=1);fim=date(t.year,t.month,calendar.monthrange(t.year,t.month)[1])
+    mov=pd.DataFrame(myrows("mov","data"))
+    if len(mov):
+        mov["data"]=pd.to_datetime(mov["data"]).dt.date
+        mm=mov[(mov.data>=ini)&(mov.data<=fim)]
+    else:mm=pd.DataFrame()
+
+    gastos=float(mm.loc[mm.tipo=="Saída","valor"].sum()) if len(mm) else 0
+    extras=float(mm.loc[mm.tipo=="Entrada","valor"].sum()) if len(mm) else 0
+    renda_base=float(cfg["rec1"]+cfg["rec2"])
+    renda=renda_base+extras
+    guardar=renda_base*float(cfg["pct"])/100
+    contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
+    cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
+    compromissos=gastos+pend+fatura
+    livre=renda-guardar-compromissos
+    taxa=(compromissos/renda*100) if renda>0 else 0
+
+    if renda<=0:
+        status="⚪ Aguardando dados";msg="Configure sua renda para liberar sua análise financeira."
+    elif taxa<=60 and livre>float(cfg["reserva"]):
+        status="🟢 Tranquilo";msg="Seus compromissos estão dentro de uma faixa confortável para os dados cadastrados."
+    elif taxa<=85:
+        status="🟡 Atenção";msg="Uma parte importante da sua renda já está comprometida. Acompanhe os próximos gastos."
+    else:
+        status="🔴 Orçamento apertado";msg="Seus gastos, contas e faturas estão consumindo grande parte da renda cadastrada."
+
+    st.subheader(status);st.write(msg)
+    a,b,c,d=st.columns(4)
+    a.metric("💰 Renda do mês",money(renda))
+    b.metric("📤 Compromissos",money(compromissos))
+    c.metric("🐷 Meta para guardar",money(guardar))
+    d.metric("💵 Livre projetado",money(livre))
+    st.progress(min(max(taxa/100,0),1),text=f"{taxa:.0f}% da renda comprometida")
+
+    st.subheader("🧠 Leitura rápida")
+    st.write(f"**Gastos registrados:** {money(gastos)}")
+    st.write(f"**Contas pendentes:** {money(pend)}")
+    st.write(f"**Faturas cadastradas:** {money(fatura)}")
+    if renda>0:
+        if livre>float(cfg["reserva"]): st.success(f"Após compromissos e sua meta de economia, a projeção livre é de {money(livre)}.")
+        elif livre>0: st.warning(f"A projeção livre é de {money(livre)}, próxima ou abaixo da sua reserva mínima.")
+        else: st.error(f"Os compromissos atuais ultrapassam o valor disponível em aproximadamente {money(abs(livre))}.")
+
+elif page=="🔮 Previsão":
+    st.title("🔮 Previsão Financeira")
+    st.caption("Estimativas baseadas nos dados cadastrados e no ritmo de gastos deste mês.")
+
+    t=date.today();ini=t.replace(day=1);dias_mes=calendar.monthrange(t.year,t.month)[1]
+    mov=pd.DataFrame(myrows("mov","data"))
+    if len(mov):
+        mov["data"]=pd.to_datetime(mov["data"]).dt.date
+        mm=mov[(mov.data>=ini)&(mov.data<=t)]
+    else:mm=pd.DataFrame()
+
+    gastos=float(mm.loc[mm.tipo=="Saída","valor"].sum()) if len(mm) else 0
+    extras=float(mm.loc[mm.tipo=="Entrada","valor"].sum()) if len(mm) else 0
+    renda=float(cfg["rec1"]+cfg["rec2"])
+    media_dia=gastos/max(t.day,1)
+    gasto_estimado=media_dia*dias_mes
+    guardar=renda*float(cfg["pct"])/100
+    contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
+    base=renda+extras-pend-guardar
+    projecao=base-gasto_estimado
+    faltam=max(dias_mes-t.day,0)
+
+    a,b,c,d=st.columns(4)
+    a.metric("📆 Gasto médio/dia",money(media_dia))
+    b.metric("📤 Gasto estimado no mês",money(gasto_estimado))
+    c.metric("🧾 Contas pendentes",money(pend))
+    d.metric("🔮 Saldo projetado",money(projecao))
+
+    st.subheader("Até o fim do mês")
+    st.write(f"Faltam **{faltam} dia(s)** para terminar o mês.")
+    if renda<=0:
+        st.info("Configure sua renda para liberar uma previsão mais completa.")
+    elif projecao>float(cfg["reserva"]):
+        st.success(f"Mantendo o ritmo atual, a estimativa é terminar o mês com aproximadamente **{money(projecao)}**.")
+    elif projecao>0:
+        st.warning(f"A estimativa termina positiva em **{money(projecao)}**, mas próxima ou abaixo da reserva mínima.")
+    else:
+        st.error(f"No ritmo atual, a estimativa indica um déficit aproximado de **{money(abs(projecao))}**.")
+
+    st.subheader("📊 Simulação de cenários")
+    cen=pd.DataFrame({
+        "Cenário":["Economizando 15%","Ritmo atual","Gastando 15% a mais"],
+        "Saldo projetado":[base-(media_dia*.85*dias_mes),base-gasto_estimado,base-(media_dia*1.15*dias_mes)]
+    })
+    cen["Saldo projetado"]=cen["Saldo projetado"].apply(money)
+    st.dataframe(cen,use_container_width=True,hide_index=True)
+    st.caption("As previsões são estimativas e mudam conforme você registra novas entradas, gastos e contas.")
 
 elif page=="➕ Registrar":
     st.title("➕ Registrar")
