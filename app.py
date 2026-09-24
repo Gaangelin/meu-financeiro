@@ -20,7 +20,12 @@ h1,h2,h3,p,label,span{color:#172033}
 [data-testid="stMetricLabel"] *{color:#687386!important}
 [data-testid="stMetricValue"]{color:#10192E!important}
 .stAlert{border-radius:14px}
-div.stButton>button,div[data-testid="stFormSubmitButton"] button{border-radius:12px;font-weight:700}
+div.stButton>button,div[data-testid="stFormSubmitButton"] button{
+border-radius:12px;font-weight:700;background:#FFFFFF!important;color:#172033!important;border:1px solid #DCE3EE!important
+}
+div.stButton>button:hover,div[data-testid="stFormSubmitButton"] button:hover{
+background:#EEF4FF!important;color:#10192E!important;border-color:#B8C8E3!important
+}
 </style>
 """,unsafe_allow_html=True)
 
@@ -284,7 +289,7 @@ def tutorial_dialog():
     st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
 
     st.markdown("### 3️⃣ Converse com o Assistente IA")
-    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. A IA usa um resumo dos seus dados financeiros para responder.")
+    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. A IA usa somente um resumo dos valores financeiros necessários para responder.")
 
     st.markdown("### 4️⃣ Acompanhe sua Saúde Financeira")
     st.write("Em **🚦 Saúde Financeira**, veja quanto da sua renda está comprometida e acompanhe o indicador **Tranquilo, Atenção ou Orçamento apertado**.")
@@ -461,7 +466,7 @@ elif page=="🤖 Assistente IA":
     c.metric("🧾 Contas pendentes",money(pend))
     d.metric("💳 Faturas",money(fatura))
 
-    st.info("🔒 Para responder, a IA recebe apenas o resumo financeiro acima e movimentações recentes da sua própria conta. Nunca informe senha bancária, CVV ou número completo de cartão no chat.")
+    st.info("🔒 Para responder, a IA recebe apenas um resumo dos seus valores financeiros. Descrições individuais das suas movimentações não são enviadas. Nunca informe senha bancária, CVV ou número completo de cartão no chat.")
 
     sugestoes=st.columns(3)
     if sugestoes[0].button("💸 Quanto posso gastar?",use_container_width=True):
@@ -487,13 +492,14 @@ elif page=="🤖 Assistente IA":
         with st.chat_message("user"):
             st.markdown(pergunta_atual)
 
-        api_key=st.secrets.get("OPENAI_API_KEY",None)
+        api_key=st.secrets.get("GEMINI_API_KEY",None)
         if not api_key:
-            resposta="O Assistente IA está pronto, mas falta adicionar a chave da API nas configurações seguras do Streamlit. Depois disso, esta conversa passa a funcionar com seus dados."
+            resposta="O Assistente IA está pronto, mas falta adicionar a chave gratuita do Gemini nas configurações seguras do Streamlit."
         else:
             try:
-                from openai import OpenAI
-                client=OpenAI(api_key=api_key)
+                from google import genai
+                from google.genai import types
+                client=genai.Client(api_key=api_key)
                 instrucoes="""Você é o Assistente Financeiro do aplicativo Meu Financeiro.
 Responda sempre em português do Brasil, de forma clara, curta e prática.
 Use SOMENTE os dados financeiros fornecidos no contexto. Se faltar informação, diga que não há dados suficientes.
@@ -502,15 +508,22 @@ Quando houver cálculo, explique o resultado de forma simples.
 Trate projeções como estimativas, não garantias.
 Nunca peça senha bancária, CVV, número completo de cartão ou credenciais.
 Ajude o usuário a entender opções e consequências, preservando a decisão final dele."""
-                contexto="DADOS FINANCEIROS DO USUÁRIO:\n"+json.dumps(resumo,ensure_ascii=False,default=str)
-                resp=client.responses.create(
-                    model="gpt-5.6-luna",
-                    instructions=instrucoes,
-                    input=contexto+"\n\nPERGUNTA DO USUÁRIO:\n"+pergunta_atual
+                # Envia somente um resumo financeiro; descrições individuais de movimentações
+                # não são enviadas ao provedor de IA na versão gratuita.
+                resumo_ia={k:v for k,v in resumo.items() if k!="movimentacoes_recentes"}
+                contexto="DADOS FINANCEIROS RESUMIDOS DO USUÁRIO:\n"+json.dumps(resumo_ia,ensure_ascii=False,default=str)
+                resp=client.models.generate_content(
+                    model="gemini-3.7-flash",
+                    contents=contexto+"\n\nPERGUNTA DO USUÁRIO:\n"+pergunta_atual,
+                    config=types.GenerateContentConfig(
+                        system_instruction=instrucoes,
+                        max_output_tokens=700,
+                        temperature=0.3
+                    )
                 )
-                resposta=resp.output_text
+                resposta=resp.text
             except Exception as e:
-                resposta=f"Não consegui consultar a IA agora. Verifique a configuração da API e tente novamente. Detalhe técnico: {e}"
+                resposta=f"Não consegui consultar a IA agora. Verifique a chave do Gemini e tente novamente. Detalhe técnico: {e}"
 
         with st.chat_message("assistant"):
             st.markdown(resposta)
