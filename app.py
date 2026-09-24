@@ -26,6 +26,16 @@ border-radius:12px;font-weight:700;background:#FFFFFF!important;color:#172033!im
 div.stButton>button:hover,div[data-testid="stFormSubmitButton"] button:hover{
 background:#EEF4FF!important;color:#10192E!important;border-color:#B8C8E3!important
 }
+
+/* Botões do menu lateral: contraste correto no fundo escuro */
+[data-testid="stSidebar"] div.stButton>button{
+background:#18243D!important;color:#F7F9FC!important;border:1px solid #34435F!important
+}
+[data-testid="stSidebar"] div.stButton>button *{color:#F7F9FC!important}
+[data-testid="stSidebar"] div.stButton>button:hover{
+background:#223252!important;color:#FFFFFF!important;border-color:#526481!important
+}
+[data-testid="stSidebar"] div.stButton>button:hover *{color:#FFFFFF!important}
 </style>
 """,unsafe_allow_html=True)
 
@@ -289,7 +299,7 @@ def tutorial_dialog():
     st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
 
     st.markdown("### 3️⃣ Converse com o Assistente IA")
-    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. A IA usa somente um resumo dos valores financeiros necessários para responder.")
+    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. A IA usa somente um resumo dos valores financeiros necessários para responder. Se o modelo principal estiver temporariamente ocupado, o aplicativo tenta automaticamente modelos alternativos disponíveis.")
 
     st.markdown("### 4️⃣ Acompanhe sua Saúde Financeira")
     st.write("Em **🚦 Saúde Financeira**, veja quanto da sua renda está comprometida e acompanhe o indicador **Tranquilo, Atenção ou Orçamento apertado**.")
@@ -512,18 +522,33 @@ Ajude o usuário a entender opções e consequências, preservando a decisão fi
                 # não são enviadas ao provedor de IA na versão gratuita.
                 resumo_ia={k:v for k,v in resumo.items() if k!="movimentacoes_recentes"}
                 contexto="DADOS FINANCEIROS RESUMIDOS DO USUÁRIO:\n"+json.dumps(resumo_ia,ensure_ascii=False,default=str)
-                resp=client.models.generate_content(
-                    model="gemini-3.7-flash",
-                    contents=contexto+"\n\nPERGUNTA DO USUÁRIO:\n"+pergunta_atual,
-                    config=types.GenerateContentConfig(
-                        system_instruction=instrucoes,
-                        max_output_tokens=700,
-                        temperature=0.3
-                    )
-                )
-                resposta=resp.text
-            except Exception as e:
-                resposta=f"Não consegui consultar a IA agora. Verifique a chave do Gemini e tente novamente. Detalhe técnico: {e}"
+                # Tenta modelos gratuitos em sequência. Isso reduz falhas temporárias
+                # de capacidade sem expor mensagens técnicas ao usuário final.
+                modelos=["gemini-3.8-flash","gemini-3.7-flash","gemini-3.5-flash-lite"]
+                resposta=None
+                ultimo_erro=None
+                for modelo in modelos:
+                    try:
+                        resp=client.models.generate_content(
+                            model=modelo,
+                            contents=contexto+"\n\nPERGUNTA DO USUÁRIO:\n"+pergunta_atual,
+                            config=types.GenerateContentConfig(
+                                system_instruction=instrucoes,
+                                max_output_tokens=700,
+                                temperature=0.3
+                            )
+                        )
+                        if getattr(resp,"text",None):
+                            resposta=resp.text
+                            break
+                    except Exception as erro_modelo:
+                        ultimo_erro=erro_modelo
+                        continue
+
+                if not resposta:
+                    resposta="A IA está temporariamente ocupada. Tente novamente em alguns instantes."
+            except Exception:
+                resposta="Não consegui acessar o Assistente IA agora. Tente novamente em alguns instantes."
 
         with st.chat_message("assistant"):
             st.markdown(resposta)
