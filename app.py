@@ -281,13 +281,15 @@ def login():
     if video_path.exists():
         try:
             video_b64 = base64.b64encode(video_path.read_bytes()).decode("utf-8")
-            video_html = f"""
-            <div id="mf-video-layer" aria-hidden="true">
-              <video class="mf-bg-video" autoplay muted loop playsinline preload="auto">
-                <source src="data:video/mp4;base64,{video_b64}" type="video/mp4">
-              </video>
-            </div>
-            """
+            # IMPORTANTE: sem recuo no HTML. Markdown interpreta linhas com 4+ espaços
+            # como bloco de código, que era o motivo de <video ...> aparecer escrito na tela.
+            video_html = (
+                '<div id="mf-video-layer" aria-hidden="true">'
+                '<video class="mf-bg-video" autoplay muted loop playsinline preload="auto">'
+                f'<source src="data:video/mp4;base64,{video_b64}" type="video/mp4">'
+                '</video>'
+                '</div>'
+            )
         except Exception:
             video_html = ""
 
