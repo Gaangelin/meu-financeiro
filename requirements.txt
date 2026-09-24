@@ -2,4 +2,4 @@ streamlit>=1.64.0
 pandas
 supabase
 altair
-openai
+google-genai
