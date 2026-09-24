@@ -10,36 +10,7 @@ from supabase import create_client
 
 st.set_page_config(page_title="Meu Financeiro Online",page_icon="💰",layout="wide",initial_sidebar_state="expanded")
 
-st.markdown("""
-<style>
-:root{color-scheme:light}
-.stApp{background:#F3F6FB!important;color:#172033!important}
-.block-container{padding-top:1.4rem;max-width:1400px}
-h1,h2,h3,p,label,span{color:#172033}
-[data-testid="stSidebar"]{background:#10192E!important}
-[data-testid="stSidebar"] *{color:#F7F9FC!important}
-[data-testid="stMetric"]{background:white;border:1px solid #E7EBF2;padding:18px;border-radius:18px;box-shadow:0 4px 18px #15223b0d}
-[data-testid="stMetricLabel"] *{color:#687386!important}
-[data-testid="stMetricValue"]{color:#10192E!important}
-.stAlert{border-radius:14px}
-div.stButton>button,div[data-testid="stFormSubmitButton"] button{
-border-radius:12px;font-weight:700;background:#FFFFFF!important;color:#172033!important;border:1px solid #DCE3EE!important
-}
-div.stButton>button:hover,div[data-testid="stFormSubmitButton"] button:hover{
-background:#EEF4FF!important;color:#10192E!important;border-color:#B8C8E3!important
-}
 
-/* Botões do menu lateral: contraste correto no fundo escuro */
-[data-testid="stSidebar"] div.stButton>button{
-background:#18243D!important;color:#F7F9FC!important;border:1px solid #34435F!important
-}
-[data-testid="stSidebar"] div.stButton>button *{color:#F7F9FC!important}
-[data-testid="stSidebar"] div.stButton>button:hover{
-background:#223252!important;color:#FFFFFF!important;border-color:#526481!important
-}
-[data-testid="stSidebar"] div.stButton>button:hover *{color:#FFFFFF!important}
-</style>
-""",unsafe_allow_html=True)
 
 try:
     sb=create_client(st.secrets["SUPABASE_URL"],st.secrets["SUPABASE_KEY"])
@@ -94,3 +65,32 @@ def sync_recurring_payments():
     """Mantém o status mensal do recorrente e a movimentação real sincronizados, sem duplicar gastos."""
     mes=date.today().strftime("%Y-%m")
     hoje=date.today().isoformat()
+    try:
+        itens=myrows("recorrentes","dia_vencimento")
+        movs=myrows("mov","data")
+    except Exception:
+        return
+    markers={str(x.get("obs") or "") for x in movs}
+    for x in itens:
+        if not bool(x.get("ativo",True)):
+            continue
+        marker=f"RECORRENTE_AUTO:{x['id']}:{mes}"
+        pago=x.get("ultimo_pago_mes")==mes
+        existe=marker in markers
+        if pago and not existe:
+            sb.table("mov").insert({
+                "user_id":st.session_state.uid,
+                "data":hoje,
+                "descricao":str(x.get("nome") or "Gasto recorrente"),
+                "categoria":str(x.get("categoria") or "Outros"),
+                "tipo":"Saída",
+                "forma":str(x.get("forma") or "Outros"),
+                "valor":float(x.get("valor") or 0),
+                "obs":marker
+            }).execute()
+            markers.add(marker)
+        elif (not pago) and existe:
+            sb.table("mov").delete().eq("user_id",st.session_state.uid).eq("obs",marker).execute()
+            markers.discard(marker)
+
+def installment_summary():
