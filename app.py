@@ -269,8 +269,37 @@ def reset_password_screen():
 
 
 def login():
-    st.title("💰 Meu Financeiro Online")
-    st.caption("Entre na sua conta para acessar seus dados financeiros.")
+    # V15 — entrada financeira futurista com animações leves em CSS.
+    st.markdown(r"""
+    <style>
+    [data-testid="stSidebar"] {display:none;}
+    .block-container {max-width:1100px; padding-top:2rem;}
+    .fin-hero {position:relative; overflow:hidden; min-height:300px; border-radius:28px; padding:34px; margin:4px 0 22px 0; background:radial-gradient(circle at 72% 35%,rgba(37,99,235,.30),transparent 28%),linear-gradient(135deg,#07111f 0%,#0b1b31 55%,#06101d 100%); box-shadow:0 24px 70px rgba(2,8,23,.25); color:white;}
+    .fin-hero h1 {font-size:2.35rem; margin:0 0 8px 0;} .fin-hero p{max-width:510px;color:#cbd5e1;font-size:1.05rem;}
+    .vault {position:absolute;right:9%;top:42px;width:175px;height:175px;border:10px solid #64748b;border-radius:28px;background:linear-gradient(145deg,#334155,#0f172a);box-shadow:inset 0 0 0 8px #1e293b,0 0 45px rgba(59,130,246,.35);animation:vaultGlow 3s ease-in-out infinite;}
+    .vault:before{content:"";position:absolute;left:44px;top:44px;width:68px;height:68px;border:9px solid #94a3b8;border-radius:50%;box-shadow:0 0 0 7px #1e293b;}
+    .vault:after{content:"$";position:absolute;left:69px;top:58px;font-size:34px;font-weight:800;color:#60a5fa;}
+    .coin{position:absolute;font-size:30px;animation:floatCoin 4s ease-in-out infinite}.c1{right:30%;top:42px}.c2{right:5%;bottom:28px;animation-delay:1s}.c3{right:35%;bottom:45px;animation-delay:2s}
+    .person{position:absolute;bottom:19px;font-size:38px;filter:drop-shadow(0 8px 8px rgba(0,0,0,.35));animation:walkBank 8s linear infinite}.p2{animation-delay:4s}.cash{position:absolute;bottom:63px;font-size:25px;animation:cashMove 8s linear infinite}.cash2{animation-delay:4s}
+    .chartline{position:absolute;left:32px;bottom:24px;color:#38bdf8;font-size:28px;opacity:.75;animation:pulseChart 2.4s ease-in-out infinite}
+    @keyframes floatCoin{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-18px) rotate(10deg)}}
+    @keyframes vaultGlow{0%,100%{box-shadow:inset 0 0 0 8px #1e293b,0 0 28px rgba(59,130,246,.25)}50%{box-shadow:inset 0 0 0 8px #1e293b,0 0 58px rgba(59,130,246,.55)}}
+    @keyframes walkBank{0%{left:44%;opacity:0;transform:scale(.85)}12%{opacity:1}78%{opacity:1}100%{left:77%;opacity:0;transform:scale(.68)}}
+    @keyframes cashMove{0%{left:48%;opacity:0}20%{opacity:1}100%{left:72%;opacity:0;transform:translateY(-20px)}}
+    @keyframes pulseChart{50%{transform:scale(1.08);opacity:1}}
+    @media(max-width:700px){.fin-hero{min-height:245px;padding:24px}.fin-hero h1{font-size:1.8rem}.vault{width:120px;height:120px;right:5%;top:105px;border-width:7px}.vault:before{left:29px;top:29px;width:48px;height:48px;border-width:6px}.vault:after{left:47px;top:37px;font-size:25px}.person,.cash{display:none}.c1{right:42%;top:130px}.c2{right:3%;bottom:12px}.c3{display:none}}
+    @media(prefers-reduced-motion:reduce){.vault,.coin,.person,.cash,.chartline{animation:none!important}}
+    </style>
+    <div class="fin-hero">
+      <h1>💰 Meu Financeiro</h1>
+      <p>Seu dinheiro sob controle. Planeje, acompanhe vencimentos e transforme metas em decisões melhores.</p>
+      <div class="chartline">▁▂▃▅▆▇↗</div><div class="vault"></div>
+      <div class="coin c1">🪙</div><div class="coin c2">🪙</div><div class="coin c3">💵</div>
+      <div class="person p1">🚶</div><div class="cash cash1">💵</div><div class="person p2">🚶</div><div class="cash cash2">💵</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.title("Acesse sua conta")
+    st.caption("Entre para acessar seu painel financeiro com segurança.")
     tab1, tab2 = st.tabs(["Entrar", "Criar conta"])
 
     with tab1:
