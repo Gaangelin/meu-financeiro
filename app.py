@@ -231,6 +231,46 @@ def login():
                         st.error(f"Erro ao criar conta: {e}")
 
 
+
+st.markdown("""
+<style>
+/* Modal do tutorial — compatível com diferentes estruturas do Streamlit */
+[data-testid="stDialog"],
+[data-testid="stDialog"] > div,
+[data-testid="stDialog"] section,
+div[role="dialog"],
+div[role="dialog"] > div {
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    color: #172033 !important;
+}
+
+[data-testid="stDialog"] *,
+div[role="dialog"] * {
+    color: #172033 !important;
+}
+
+[data-testid="stDialog"] [data-testid="stAlert"],
+div[role="dialog"] [data-testid="stAlert"] {
+    background: #EAF4FF !important;
+    background-color: #EAF4FF !important;
+    border-color: #B8D9FF !important;
+}
+
+[data-testid="stDialog"] button[kind="primary"],
+[data-testid="stDialog"] button[kind="primary"] *,
+div[role="dialog"] button[kind="primary"],
+div[role="dialog"] button[kind="primary"] * {
+    color: #FFFFFF !important;
+}
+
+/* Mantém a área atrás do tutorial apenas suavemente escurecida */
+[data-testid="stModal"] {
+    background-color: rgba(16, 25, 46, 0.18) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 @st.dialog("👋 Bem-vindo ao Meu Financeiro", width="large")
 def tutorial_dialog():
     st.caption("Guia rápido para você saber onde começar e para que serve cada área.")
