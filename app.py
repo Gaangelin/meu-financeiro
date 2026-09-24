@@ -341,7 +341,7 @@ def tutorial_dialog():
     st.write("Abra **⚙️ Configurações** e informe seus recebimentos, o percentual que deseja guardar e a sua reserva mínima.")
 
     st.markdown("### 2️⃣ Registre entradas e gastos")
-    st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
+    st.write("Em **➕ Registrar**, digite a descrição do lançamento e o sistema sugere uma categoria automaticamente. Confira a sugestão, ajuste se quiser e informe tipo, forma de pagamento e valor.")
 
     st.markdown("### 3️⃣ Converse com o Assistente IA")
     st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. Os três botões rápidos sempre substituem a análise anterior, deixando a tela limpa; perguntas digitadas no chat continuam formando uma conversa. Os atalhos principais são calculados pelo próprio sistema e funcionam mesmo quando o serviço externo de IA está ocupado. Para perguntas livres, a IA usa somente um resumo dos valores financeiros necessários e, se o serviço estiver indisponível, o sistema responde com uma análise local.")
@@ -412,6 +412,23 @@ st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
 
 st.sidebar.title("💰 Meu Financeiro")
 st.sidebar.caption(st.session_state.get("email",""))
+
+def sugerir_categoria(descricao):
+    texto=(descricao or "").lower().strip()
+    regras={
+        "Transporte":["uber","99","taxi","táxi","posto","gasolina","etanol","combustivel","combustível","pedagio","pedágio","estacionamento"],
+        "Alimentação":["ifood","restaurante","lanche","pizza","hamburguer","hambúrguer","padaria","cafe","café","almoço","almoco","jantar"],
+        "Assinaturas":["netflix","spotify","disney","prime video","amazon prime","youtube premium","hbo","max","deezer","icloud","google one"],
+        "Saúde":["farmacia","farmácia","drogaria","medico","médico","consulta","dentista","hospital","exame"],
+        "Moradia":["aluguel","condominio","condomínio","energia","luz","agua","água","internet","iptu"],
+        "Compras":["shopee","mercado livre","amazon","magalu","magazine luiza","roupa","calçado","calcado"],
+        "Lazer":["cinema","show","bar","viagem","hotel","ingresso","jogo"],
+    }
+    for categoria, termos in regras.items():
+        if any(t in texto for t in termos):
+            return categoria
+    return "Outros"
+
 page=st.sidebar.radio("Menu",["🏠 Início","🤖 Assistente IA","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🔁 Recorrentes","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
 
 if st.sidebar.button("❓ Tutorial / Ajuda", use_container_width=True):
@@ -774,10 +791,31 @@ elif page=="🔮 Previsão":
 
 elif page=="➕ Registrar":
     st.title("➕ Registrar")
+    st.caption("Digite a descrição e o Meu Financeiro sugere uma categoria automaticamente. Você continua no controle e pode alterá-la antes de salvar.")
+    desc=st.text_input("Descrição",key="mov_desc",placeholder="Ex.: Uber, iFood, Netflix, Farmácia")
+    categorias=["Moradia","Alimentação","Transporte","Saúde","Lazer","Assinaturas","Compras","Outros"]
+    sugerida=sugerir_categoria(desc)
+    if desc.strip():
+        st.info(f"✨ Categoria sugerida: **{sugerida}**")
+    idx=categorias.index(sugerida) if sugerida in categorias else len(categorias)-1
     with st.form("mov",clear_on_submit=True):
-        dt=st.date_input("Data",date.today());desc=st.text_input("Descrição");a,b=st.columns(2);cat=a.selectbox("Categoria",["Moradia","Alimentação","Transporte","Saúde","Lazer","Assinaturas","Compras","Outros"]);tipo=b.selectbox("Tipo",["Saída","Entrada"]);a,b=st.columns(2);forma=a.selectbox("Forma",["Pix","Débito","Crédito","Dinheiro","Outro"]);valor=b.number_input("Valor",min_value=0.0);obs=st.text_input("Observação")
-        if st.form_submit_button("💾 Salvar",use_container_width=True):
-            sb.table("mov").insert({"user_id":st.session_state.uid,"data":dt.isoformat(),"descricao":desc,"categoria":cat,"tipo":tipo,"forma":forma,"valor":valor,"obs":obs}).execute();st.success("Salvo.")
+        dt=st.date_input("Data",date.today())
+        a,b=st.columns(2)
+        cat=a.selectbox("Categoria",categorias,index=idx)
+        tipo=b.selectbox("Tipo",["Saída","Entrada"])
+        a,b=st.columns(2)
+        forma=a.selectbox("Forma",["Pix","Débito","Crédito","Dinheiro","Outro"])
+        valor=b.number_input("Valor",min_value=0.0)
+        obs=st.text_input("Observação")
+        salvar=st.form_submit_button("💾 Salvar",use_container_width=True)
+    if salvar:
+        if not desc.strip() or valor<=0:
+            st.warning("Informe uma descrição e um valor maior que zero.")
+        else:
+            sb.table("mov").insert({"user_id":st.session_state.uid,"data":dt.isoformat(),"descricao":desc.strip(),"categoria":cat,"tipo":tipo,"forma":forma,"valor":valor,"obs":obs}).execute()
+            st.success("Lançamento salvo.")
+            st.session_state.mov_desc=""
+            st.rerun()
     st.dataframe(pd.DataFrame(myrows("mov","data")),use_container_width=True,hide_index=True)
 
 elif page=="🔁 Recorrentes":
