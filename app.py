@@ -87,6 +87,39 @@ def recurring_summary():
     pendente=sum(float(x.get("valor") or 0) for x in ativos if x.get("ultimo_pago_mes")!=mes)
     return ativos,total,pendente
 
+
+def sync_recurring_payments():
+    """Mantém o status mensal do recorrente e a movimentação real sincronizados, sem duplicar gastos."""
+    mes=date.today().strftime("%Y-%m")
+    hoje=date.today().isoformat()
+    try:
+        itens=myrows("recorrentes","dia_vencimento")
+        movs=myrows("mov","data")
+    except Exception:
+        return
+    markers={str(x.get("obs") or "") for x in movs}
+    for x in itens:
+        if not bool(x.get("ativo",True)):
+            continue
+        marker=f"RECORRENTE_AUTO:{x['id']}:{mes}"
+        pago=x.get("ultimo_pago_mes")==mes
+        existe=marker in markers
+        if pago and not existe:
+            sb.table("mov").insert({
+                "user_id":st.session_state.uid,
+                "data":hoje,
+                "descricao":str(x.get("nome") or "Gasto recorrente"),
+                "categoria":str(x.get("categoria") or "Outros"),
+                "tipo":"Saída",
+                "forma":str(x.get("forma") or "Outros"),
+                "valor":float(x.get("valor") or 0),
+                "obs":marker
+            }).execute()
+            markers.add(marker)
+        elif (not pago) and existe:
+            sb.table("mov").delete().eq("user_id",st.session_state.uid).eq("obs",marker).execute()
+            markers.discard(marker)
+
 def ensure_config():
     r=sb.table("config").select("*").eq("user_id",st.session_state.uid).execute().data
     if not r:
@@ -373,6 +406,8 @@ if "uid" not in st.session_state or not st.session_state.get("access_token"):
     st.stop()
 
 cfg=ensure_config()
+# V8: transforma recorrentes marcados como pagos em gastos realizados e reconcilia dados antigos.
+sync_recurring_payments()
 st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
 
 st.sidebar.title("💰 Meu Financeiro")
