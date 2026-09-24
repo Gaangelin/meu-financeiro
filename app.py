@@ -61,7 +61,15 @@ def myrows(table, order=None):
 def ensure_config():
     r=sb.table("config").select("*").eq("user_id",st.session_state.uid).execute().data
     if not r:
-        sb.table("config").insert({"user_id":st.session_state.uid,"rec1":0,"rec2":0,"dia2":20,"pct":20,"reserva":0}).execute()
+        sb.table("config").insert({
+            "user_id":st.session_state.uid,
+            "rec1":0,
+            "rec2":0,
+            "dia2":20,
+            "pct":20,
+            "reserva":0,
+            "tutorial_oculto":False
+        }).execute()
         r=sb.table("config").select("*").eq("user_id",st.session_state.uid).execute().data
     return r[0]
 
@@ -190,6 +198,53 @@ def login():
                         st.error(f"Erro ao criar conta: {e}")
 
 
+@st.dialog("👋 Bem-vindo ao Meu Financeiro", width="large")
+def tutorial_dialog():
+    st.caption("Guia rápido para você saber onde começar e para que serve cada área.")
+
+    st.markdown("### 1️⃣ Configure sua renda")
+    st.write("Abra **⚙️ Configurações** e informe o 1º e o 2º recebimento, o percentual que deseja guardar e a sua reserva mínima.")
+
+    st.markdown("### 2️⃣ Registre entradas e gastos")
+    st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
+
+    st.markdown("### 3️⃣ Organize suas contas")
+    st.write("Em **🧾 Contas**, cadastre contas a pagar, vencimentos e marque cada uma como Pendente, Pago ou Atrasado.")
+
+    st.markdown("### 4️⃣ Acompanhe seus cartões")
+    st.write("Em **💳 Cartões**, informe limite, fatura atual, dia de fechamento e vencimento.")
+
+    st.markdown("### 5️⃣ Controle dívidas e objetivos")
+    st.write("Use **📉 Dívidas** para acompanhar saldo e parcelas. Em **🎯 Metas**, registre quanto deseja juntar e quanto já guardou.")
+
+    st.markdown("### 6️⃣ Entenda a tela Início")
+    st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro de gasto por dia. O Assistente Financeiro avisa quando os gastos estiverem se aproximando do planejado.")
+
+    st.markdown("### 7️⃣ Consulte seus relatórios")
+    st.write("Em **📊 Relatórios**, veja seus lançamentos e a distribuição dos gastos por categoria.")
+
+    st.info("💡 Você pode abrir este tutorial novamente a qualquer momento pelo botão **❓ Tutorial / Ajuda** no menu lateral.")
+
+    nao_mostrar = st.checkbox(
+        "Não mostrar este tutorial automaticamente novamente",
+        value=False,
+        key="tutorial_nao_mostrar"
+    )
+
+    if st.button("✅ Entendi, começar", use_container_width=True, type="primary"):
+        if nao_mostrar:
+            try:
+                sb.table("config").update(
+                    {"tutorial_oculto": True}
+                ).eq("user_id", st.session_state.uid).execute()
+                st.session_state.tutorial_oculto = True
+            except Exception as e:
+                st.error(f"Não foi possível salvar sua preferência: {e}")
+                return
+        st.session_state.tutorial_mostrado_sessao = True
+        st.rerun()
+
+
 handle_auth_callback()
 
 if st.session_state.get("access_token"):
@@ -204,9 +259,19 @@ if "uid" not in st.session_state or not st.session_state.get("access_token"):
     st.stop()
 
 cfg=ensure_config()
+st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
+
 st.sidebar.title("💰 Meu Financeiro")
 st.sidebar.caption(st.session_state.get("email",""))
 page=st.sidebar.radio("Menu",["🏠 Início","➕ Registrar","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
+
+if st.sidebar.button("❓ Tutorial / Ajuda", use_container_width=True):
+    tutorial_dialog()
+
+if not st.session_state.tutorial_oculto and not st.session_state.get("tutorial_mostrado_sessao", False):
+    st.session_state.tutorial_mostrado_sessao = True
+    tutorial_dialog()
+
 if st.sidebar.button("🚪 Sair",use_container_width=True):
     try:
         sb.auth.sign_out()
