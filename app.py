@@ -344,7 +344,7 @@ def tutorial_dialog():
     st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
 
     st.markdown("### 3️⃣ Converse com o Assistente IA")
-    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. Os três botões rápidos sempre substituem a análise anterior, deixando a tela limpa; perguntas digitadas no chat continuam formando uma conversa. A IA usa somente um resumo dos valores financeiros necessários para responder e tenta uma alternativa quando o serviço está temporariamente ocupado.")
+    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. Os três botões rápidos sempre substituem a análise anterior, deixando a tela limpa; perguntas digitadas no chat continuam formando uma conversa. Os atalhos principais são calculados pelo próprio sistema e funcionam mesmo quando o serviço externo de IA está ocupado. Para perguntas livres, a IA usa somente um resumo dos valores financeiros necessários e, se o serviço estiver indisponível, o sistema responde com uma análise local.")
 
     st.markdown("### 4️⃣ Acompanhe sua Saúde Financeira")
     st.write("Em **🚦 Saúde Financeira**, veja quanto da sua renda está comprometida e acompanhe o indicador **Tranquilo, Atenção ou Orçamento apertado**.")
@@ -538,19 +538,64 @@ elif page=="🤖 Assistente IA":
 
     st.info("🔒 Para responder, a IA recebe apenas um resumo dos seus valores financeiros. Descrições individuais das suas movimentações não são enviadas. Nunca informe senha bancária, CVV ou número completo de cartão no chat.")
 
+    def resposta_financeira_local(pergunta_local):
+        """Fallback local: responde perguntas financeiras comuns sem depender do Gemini."""
+        q=(pergunta_local or "").lower()
+        dias_restantes=max((date(t.year,t.month,calendar.monthrange(t.year,t.month)[1])-t).days+1,1)
+        limite_dia=max(saldo/dias_restantes,0)
+        maior_cat=max(categorias.items(), key=lambda kv: kv[1]) if categorias else None
+
+        if any(x in q for x in ["quanto posso gastar","quanto posso usar","posso gastar","disponível","disponivel"]):
+            return (f"Você pode usar até **{money(saldo)}** até o fim deste mês dentro do planejamento atual. "
+                    f"Esse valor já considera **{money(gastos)}** em gastos realizados, **{money(guardar)}** para guardar, "
+                    f"**{money(pend)}** em contas pendentes e **{money(rec_pendente)}** em recorrentes ainda pendentes. "
+                    f"Como referência, isso equivale a cerca de **{money(limite_dia)} por dia** até o fim do mês.")
+
+        if any(x in q for x in ["onde gasto","onde estou gastando","gasto mais","categoria"]):
+            if maior_cat:
+                cat,val=maior_cat
+                return (f"Sua maior categoria de gastos neste mês é **{cat}**, com **{money(val)}**. "
+                        f"Seus gastos realizados somam **{money(gastos)}** no mês.")
+            return "Ainda não há gastos por categoria suficientes para eu comparar neste mês."
+
+        if any(x in q for x in ["como está meu mês","como esta meu mes","situação","situacao","resumo do mês","resumo do mes"]):
+            return (f"Neste mês, sua renda base é **{money(renda_base)}**, você já gastou **{money(gastos)}** e separou "
+                    f"**{money(guardar)}** para guardar. Há **{money(pend+rec_pendente)}** em compromissos ainda pendentes. "
+                    f"Seu saldo estimado para uso é **{money(saldo)}**.")
+
+        if "recorrent" in q or "assinatura" in q:
+            return (f"Você tem **{money(rec_total)} por mês** em gastos recorrentes cadastrados. "
+                    f"Neste mês, **{money(rec_pendente)}** ainda está pendente.")
+
+        if "dívida" in q or "divida" in q:
+            total_div=sum(float(x.get("saldo") or 0) for x in dividas)
+            return f"O saldo total das dívidas cadastradas é **{money(total_div)}**."
+
+        if "meta" in q or "guardar" in q or "econom" in q:
+            return (f"Sua meta atual de guardar no mês é **{money(guardar)}**. "
+                    f"Depois dos gastos e compromissos pendentes, o saldo estimado para uso é **{money(saldo)}**.")
+
+        return (f"No momento, seu resumo é: renda base **{money(renda_base)}**, gastos **{money(gastos)}**, "
+                f"compromissos pendentes **{money(pend+rec_pendente)}** e saldo estimado para uso **{money(saldo)}**. "
+                "Você pode perguntar, por exemplo, quanto pode gastar, onde está gastando mais, como está o mês, metas, dívidas ou recorrentes.")
+
     sugestoes=st.columns(3)
     if sugestoes[0].button("💸 Quanto posso gastar?",use_container_width=True):
         st.session_state.ai_history=[]
+        st.session_state.ai_quick=True
         st.session_state.ai_question="Quanto posso gastar até o fim deste mês sem comprometer minha meta de guardar e minha reserva?"
     if sugestoes[1].button("📊 Onde gasto mais?",use_container_width=True):
         st.session_state.ai_history=[]
+        st.session_state.ai_quick=True
         st.session_state.ai_question="Analise onde estou gastando mais neste mês e explique de forma curta."
     if sugestoes[2].button("🔮 Como está meu mês?",use_container_width=True):
         st.session_state.ai_history=[]
+        st.session_state.ai_quick=True
         st.session_state.ai_question="Faça um resumo da minha situação financeira neste mês e destaque os pontos que merecem atenção."
 
     pergunta=st.chat_input("Pergunte algo sobre suas finanças...")
     if pergunta:
+        st.session_state.ai_quick=False
         st.session_state.ai_question=pergunta
 
     if "ai_history" not in st.session_state:
@@ -565,14 +610,20 @@ elif page=="🤖 Assistente IA":
         with st.chat_message("user"):
             st.markdown(pergunta_atual)
 
+        # Os 3 atalhos principais são calculados localmente. Assim funcionam sempre,
+        # mesmo se o serviço externo de IA estiver congestionado.
+        pergunta_rapida=bool(st.session_state.pop("ai_quick",False))
         api_key=st.secrets.get("GEMINI_API_KEY",None)
-        if not api_key:
-            resposta="O Assistente IA está pronto, mas falta adicionar a chave gratuita do Gemini nas configurações seguras do Streamlit."
+
+        if pergunta_rapida:
+            resposta=resposta_financeira_local(pergunta_atual)
+        elif not api_key:
+            resposta=resposta_financeira_local(pergunta_atual)
         else:
             try:
                 from google import genai
                 from google.genai import types
-                client=genai.Client(api_key=api_key,http_options=types.HttpOptions(timeout=25000))
+                client=genai.Client(api_key=api_key,http_options=types.HttpOptions(timeout=15000))
                 instrucoes="""Você é o Assistente Financeiro do aplicativo Meu Financeiro.
 Responda sempre em português do Brasil, de forma clara, curta e prática.
 Use SOMENTE os dados financeiros fornecidos no contexto. Se faltar informação, diga que não há dados suficientes.
@@ -582,15 +633,12 @@ Trate projeções como estimativas, não garantias.
 Nunca peça senha bancária, CVV, número completo de cartão ou credenciais.
 Ajude o usuário a entender opções e consequências, preservando a decisão final dele.
 Use Markdown simples e não coloque valores monetários entre crases ou blocos de código."""
-                # Envia somente um resumo financeiro; descrições individuais de movimentações
-                # não são enviadas ao provedor de IA na versão gratuita.
                 resumo_ia={k:v for k,v in resumo.items() if k!="movimentacoes_recentes"}
                 contexto="DADOS FINANCEIROS RESUMIDOS DO USUÁRIO:\n"+json.dumps(resumo_ia,ensure_ascii=False,default=str)
-                # Tenta modelos gratuitos em sequência. Isso reduz falhas temporárias
-                # de capacidade sem expor mensagens técnicas ao usuário final.
-                modelos=["gemini-3.8-flash","gemini-3.6-flash"]
+                # Modelos estáveis em sequência. Se todos estiverem indisponíveis,
+                # o assistente responde localmente em vez de falhar.
+                modelos=["gemini-3.8-flash","gemini-3.6-flash","gemini-3.5-flash-lite"]
                 resposta=None
-                ultimo_erro=None
                 for modelo in modelos:
                     try:
                         resp=client.models.generate_content(
@@ -604,14 +652,12 @@ Use Markdown simples e não coloque valores monetários entre crases ou blocos d
                         if getattr(resp,"text",None):
                             resposta=resp.text
                             break
-                    except Exception as erro_modelo:
-                        ultimo_erro=erro_modelo
+                    except Exception:
                         continue
-
                 if not resposta:
-                    resposta="A IA está temporariamente ocupada. Tente novamente em alguns instantes."
+                    resposta=resposta_financeira_local(pergunta_atual)
             except Exception:
-                resposta="Não consegui acessar o Assistente IA agora. Tente novamente em alguns instantes."
+                resposta=resposta_financeira_local(pergunta_atual)
 
         # Remove cercas de código acidentais que podem prejudicar a leitura de valores.
         resposta=resposta.replace("```markdown","").replace("```","").strip()
