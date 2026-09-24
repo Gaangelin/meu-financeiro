@@ -1,96 +1,114 @@
-import streamlit as st
-import pandas as pd
-from datetime import date, timedelta
-import calendar
-import json
-import base64
-from pathlib import Path
-import altair as alt
-from supabase import create_client
+            c1,c2,c3,c4=st.columns([4,2,2,2])
+            c1.write(f"**{x.get('nome','')}**  ·  {x.get('categoria','')}")
+            c2.write(money(x.get("valor",0)))
+            c3.write(f"Dia {x.get('dia_vencimento','-')}")
+            if pago:
+                if c4.button("↩️ Desmarcar",key=f"unpay_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"ultimo_pago_mes":None}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+            else:
+                if c4.button("✅ Pago no mês",key=f"pay_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"ultimo_pago_mes":mes_atual}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+            with st.expander(f"Editar / desativar — {x.get('nome','')}"):
+                novo_valor=st.number_input("Valor",min_value=0.0,value=float(x.get("valor") or 0),key=f"rv_{x['id']}")
+                novo_dia=st.number_input("Vencimento",1,28,int(x.get("dia_vencimento") or 10),key=f"rd_{x['id']}")
+                e1,e2=st.columns(2)
+                if e1.button("💾 Salvar",key=f"rs_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"valor":novo_valor,"dia_vencimento":int(novo_dia)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+                if e2.button("🗑️ Desativar",key=f"rx_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"ativo":False}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+    else:
+        st.info("Nenhum gasto recorrente cadastrado ainda.")
 
-st.set_page_config(page_title="Meu Financeiro Online",page_icon="💰",layout="wide",initial_sidebar_state="expanded")
-
-st.markdown("""
-<style>
-:root{color-scheme:light}
-.stApp{background:#F3F6FB!important;color:#172033!important}
-.block-container{padding-top:1.4rem;max-width:1400px}
-h1,h2,h3,p,label,span{color:#172033}
-[data-testid="stSidebar"]{background:#10192E!important}
-[data-testid="stSidebar"] *{color:#F7F9FC!important}
-[data-testid="stMetric"]{background:white;border:1px solid #E7EBF2;padding:18px;border-radius:18px;box-shadow:0 4px 18px #15223b0d}
-[data-testid="stMetricLabel"] *{color:#687386!important}
-[data-testid="stMetricValue"]{color:#10192E!important}
-.stAlert{border-radius:14px}
-div.stButton>button,div[data-testid="stFormSubmitButton"] button{
-border-radius:12px;font-weight:700;background:#FFFFFF!important;color:#172033!important;border:1px solid #DCE3EE!important
-}
-div.stButton>button:hover,div[data-testid="stFormSubmitButton"] button:hover{
-background:#EEF4FF!important;color:#10192E!important;border-color:#B8C8E3!important
-}
-
-/* Botões do menu lateral: contraste correto no fundo escuro */
-[data-testid="stSidebar"] div.stButton>button{
-background:#18243D!important;color:#F7F9FC!important;border:1px solid #34435F!important
-}
-[data-testid="stSidebar"] div.stButton>button *{color:#F7F9FC!important}
-[data-testid="stSidebar"] div.stButton>button:hover{
-background:#223252!important;color:#FFFFFF!important;border-color:#526481!important
-}
-[data-testid="stSidebar"] div.stButton>button:hover *{color:#FFFFFF!important}
-</style>
-""",unsafe_allow_html=True)
-
-try:
-    sb=create_client(st.secrets["SUPABASE_URL"],st.secrets["SUPABASE_KEY"])
-except Exception:
-    st.error("O banco online ainda não foi configurado. Siga o GUIA_PUBLICAR.txt.")
-    st.stop()
-
-def money(v):
-    return f"R$ {float(v or 0):,.2f}".replace(",","X").replace(".",",").replace("X",".")
-
-def fifth(y,m):
-    d=date(y,m,1); n=0
-    while True:
-        if d.weekday()<5:
-            n+=1
-            if n==5:return d
-        d+=timedelta(days=1)
-
-def nextpay(d2,r1,r2):
-    t=date.today(); a=fifth(t.year,t.month); b=date(t.year,t.month,min(max(int(d2),1),28)); opts=[]
-    if a>=t:opts.append((a,r1))
-    if b>=t:opts.append((b,r2))
-    if not opts:
-        y=t.year+(1 if t.month==12 else 0);m=1 if t.month==12 else t.month+1
-        opts=[(fifth(y,m),r1)]
-    return min(opts,key=lambda x:x[0])
-
-def rows(table, order=None):
-    q=sb.table(table).select("*")
-    if order:q=q.order(order,desc=True)
-    return q.execute().data or []
-
-def myrows(table, order=None):
-    q=sb.table(table).select("*").eq("user_id",st.session_state.uid)
-    if order:q=q.order(order,desc=True)
-    return q.execute().data or []
-
-def recurring_summary():
-    """Retorna recorrentes ativos, total mensal e valor ainda não marcado como pago no mês atual."""
-    try:
-        itens=myrows("recorrentes","dia_vencimento")
-    except Exception:
-        return [],0.0,0.0
+elif page=="💳 Parcelamentos":
+    st.title("💳 Compras Parceladas")
+    st.caption("Acompanhe compras com número definido de parcelas. A parcela do mês entra automaticamente no planejamento enquanto estiver pendente.")
+    with st.form("novo_parcelamento",clear_on_submit=True):
+        nome=st.text_input("Compra",placeholder="Ex.: iPhone, TV, Notebook")
+        a,b=st.columns(2)
+        valor=a.number_input("Valor da parcela",min_value=0.0,step=10.0)
+        total=b.number_input("Total de parcelas",min_value=1,max_value=120,value=10,step=1)
+        a,b=st.columns(2)
+        pagas=a.number_input("Parcelas já pagas",min_value=0,max_value=120,value=0,step=1)
+        dia=b.number_input("Dia do vencimento",min_value=1,max_value=31,value=10,step=1)
+        a,b=st.columns(2)
+        categoria=a.selectbox("Categoria",["Compras","Moradia","Transporte","Saúde","Lazer","Outros"])
+        forma=b.selectbox("Forma de pagamento",["Crédito","Pix","Boleto","Débito","Outros"])
+        if st.form_submit_button("➕ Adicionar parcelamento",use_container_width=True):
+            if not nome.strip() or valor<=0 or int(pagas)>=int(total):
+                st.error("Informe a compra, um valor maior que zero e deixe pelo menos uma parcela restante.")
+            else:
+                sb.table("parcelamentos").insert({"user_id":st.session_state.uid,"nome":nome.strip(),"categoria":categoria,"valor_parcela":float(valor),"total_parcelas":int(total),"parcelas_pagas":int(pagas),"dia_vencimento":int(dia),"forma":forma,"ativo":True,"ultimo_pago_mes":None}).execute(); st.rerun()
+    itens,pendente=installment_summary()
+    total_restante=sum(float(x.get("valor_parcela") or 0)*(int(x.get("total_parcelas") or 0)-int(x.get("parcelas_pagas") or 0)) for x in itens)
+    a,b,c=st.columns(3);a.metric("Parcelamentos ativos",len(itens));b.metric("Pendente neste mês",money(pendente));c.metric("Saldo parcelado restante",money(total_restante))
+    st.subheader("Seus parcelamentos")
     mes=date.today().strftime("%Y-%m")
-    ativos=[x for x in itens if bool(x.get("ativo",True))]
-    total=sum(float(x.get("valor") or 0) for x in ativos)
-    pendente=sum(float(x.get("valor") or 0) for x in ativos if x.get("ultimo_pago_mes")!=mes)
-    return ativos,total,pendente
+    for x in itens:
+        total=int(x.get("total_parcelas") or 0); pagas=int(x.get("parcelas_pagas") or 0); vp=float(x.get("valor_parcela") or 0)
+        atual=min(pagas+1,total); restante=max(total-pagas,0); pct=(pagas/total) if total else 0
+        st.markdown(f"**{x.get('nome')}** · {money(vp)} por parcela · **{pagas}/{total} pagas** · faltam **{restante}** · restante {money(vp*restante)}")
+        st.progress(min(max(pct,0),1),text=f"{pct*100:.0f}% concluído")
+        a,b=st.columns([3,1])
+        a.caption(f"Próxima: parcela {atual}/{total} · dia {int(x.get('dia_vencimento') or 1)} · {x.get('forma') or 'Outros'}")
+        pago=x.get("ultimo_pago_mes")==mes
+        if not pago:
+            if b.button("✅ Pagar parcela do mês",key=f"parc_pay_{x['id']}",use_container_width=True):
+                sb.table("parcelamentos").update({"ultimo_pago_mes":mes,"parcelas_pagas":min(pagas+1,total)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); sync_installment_payments(); st.rerun()
+        else:
+            if b.button("↩️ Desmarcar",key=f"parc_unpay_{x['id']}",use_container_width=True):
+                sb.table("parcelamentos").update({"ultimo_pago_mes":None,"parcelas_pagas":max(pagas-1,0)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); sync_installment_payments(); st.rerun()
+        with st.expander(f"Editar / desativar — {x.get('nome')}"):
+            novo_nome=st.text_input("Nome",value=str(x.get("nome") or ""),key=f"pn_{x['id']}")
+            novo_valor=st.number_input("Valor da parcela",min_value=0.0,value=vp,key=f"pv_{x['id']}")
+            novo_dia=st.number_input("Dia do vencimento",min_value=1,max_value=31,value=int(x.get("dia_vencimento") or 1),key=f"pd_{x['id']}")
+            if st.button("💾 Salvar alterações",key=f"ps_{x['id']}"):
+                sb.table("parcelamentos").update({"nome":novo_nome,"valor_parcela":float(novo_valor),"dia_vencimento":int(novo_dia)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); st.rerun()
+            if st.button("🗑️ Desativar parcelamento",key=f"px_{x['id']}"):
+                sb.table("parcelamentos").update({"ativo":False}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute(); st.rerun()
+        st.divider()
+    if not itens: st.info("Nenhum parcelamento ativo cadastrado.")
 
+elif page=="🧾 Contas":
+    st.title("🧾 Contas")
+    with st.form("conta",clear_on_submit=True):
+        n=st.text_input("Conta");a,b=st.columns(2);cat=a.selectbox("Categoria",["Moradia","Saúde","Transporte","Assinaturas","Outros"]);v=b.number_input("Valor",min_value=0.0);a,b=st.columns(2);ven=a.date_input("Vencimento");status=b.selectbox("Status",["Pendente","Pago","Atrasado"])
+        if st.form_submit_button("Adicionar"):sb.table("contas").insert({"user_id":st.session_state.uid,"nome":n,"categoria":cat,"valor":v,"vencimento":ven.isoformat(),"status":status}).execute();st.success("Adicionada.")
+    st.dataframe(pd.DataFrame(myrows("contas","vencimento")),use_container_width=True,hide_index=True)
 
-def sync_recurring_payments():
-    """Mantém o status mensal do recorrente e a movimentação real sincronizados, sem duplicar gastos."""
-    mes=date.today().strftime("%Y-%m")
-    hoje=date.today().isoformat()
+elif page=="💳 Cartões":
+    st.title("💳 Cartões")
+    with st.form("card",clear_on_submit=True):
+        n=st.text_input("Cartão");a,b=st.columns(2);lim=a.number_input("Limite",min_value=0.0);fat=b.number_input("Fatura atual",min_value=0.0);a,b=st.columns(2);fec=a.number_input("Fechamento",1,28,10);ven=b.number_input("Vencimento",1,28,20)
+        if st.form_submit_button("Adicionar"):sb.table("cartoes").insert({"user_id":st.session_state.uid,"nome":n,"limite":lim,"fatura":fat,"fechamento":fec,"vencimento":ven}).execute();st.success("Adicionado.")
+    st.dataframe(pd.DataFrame(myrows("cartoes")),use_container_width=True,hide_index=True)
+
+elif page=="📉 Dívidas":
+    st.title("📉 Dívidas")
+    with st.form("div",clear_on_submit=True):
+        n=st.text_input("Dívida");a,b,c=st.columns(3);saldo=a.number_input("Saldo",min_value=0.0);par=b.number_input("Parcela",min_value=0.0);rest=c.number_input("Parcelas restantes",min_value=0,step=1)
+        if st.form_submit_button("Adicionar"):sb.table("dividas").insert({"user_id":st.session_state.uid,"nome":n,"saldo":saldo,"parcela":par,"restantes":rest}).execute();st.success("Adicionada.")
+    st.dataframe(pd.DataFrame(myrows("dividas")),use_container_width=True,hide_index=True)
+
+elif page=="🎯 Metas":
+    st.title("🎯 Metas")
+    with st.form("meta",clear_on_submit=True):
+        n=st.text_input("Objetivo");a,b=st.columns(2);d=a.number_input("Valor desejado",min_value=0.0);g=b.number_input("Já guardado",min_value=0.0)
+        if st.form_submit_button("Adicionar"):sb.table("metas").insert({"user_id":st.session_state.uid,"nome":n,"desejado":d,"guardado":g}).execute();st.success("Adicionada.")
+    st.dataframe(pd.DataFrame(myrows("metas")),use_container_width=True,hide_index=True)
+
+elif page=="📊 Relatórios":
+    st.title("📊 Relatórios");d=pd.DataFrame(myrows("mov","data"))
+    _,rec_total,rec_pendente=recurring_summary()
+    st.caption(f"🔁 Recorrentes: {money(rec_total)}/mês • pendentes neste mês: {money(rec_pendente)}")
+    if len(d):
+        s=d[d.tipo=="Saída"].groupby("categoria")["valor"].sum();st.bar_chart(s);st.dataframe(d,use_container_width=True,hide_index=True)
+    else:st.info("Ainda não há lançamentos.")
+
+else:
+    st.title("⚙️ Configurações")
+    st.info("1º recebimento: 5º dia útil. 2º recebimento: dia 20 por padrão.")
+    with st.form("cfg"):
+        a,b=st.columns(2);r1=a.number_input("1º recebimento",min_value=0.0,value=float(cfg["rec1"]));r2=b.number_input("2º recebimento",min_value=0.0,value=float(cfg["rec2"]));a,b=st.columns(2);d2=a.number_input("Dia do 2º recebimento",1,28,int(cfg["dia2"]));pct=b.slider("Porcentagem para guardar",0,50,int(cfg["pct"]));res=st.number_input("Reserva mínima",min_value=0.0,value=float(cfg["reserva"]))
+        st.caption(f"Meta mensal para guardar: {money((r1+r2)*pct/100)}.")
+        if st.form_submit_button("💾 Salvar",use_container_width=True):
+            sb.table("config").update({"rec1":r1,"rec2":r2,"dia2":d2,"pct":pct,"reserva":res}).eq("user_id",st.session_state.uid).execute();st.success("Configurações salvas.")
