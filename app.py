@@ -406,12 +406,15 @@ if page=="🏠 Início":
     else:mm=pd.DataFrame()
     gastos=float(mm.loc[mm.tipo=="Saída","valor"].sum()) if len(mm) else 0
     extras=float(mm.loc[mm.tipo=="Entrada","valor"].sum()) if len(mm) else 0
-    sal=float(cfg["rec1"]+cfg["rec2"]);guardar=sal*float(cfg["pct"])/100;viver=sal-guardar;saldo=max(viver+extras-gastos,0)
+    sal=float(cfg["rec1"]+cfg["rec2"]);guardar=sal*float(cfg["pct"])/100;viver=sal-guardar
     nd,nv=nextpay(cfg["dia2"],cfg["rec1"],cfg["rec2"]);dias=max((nd-t).days,0)
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
     _,rec_total,rec_pendente=recurring_summary()
-    livre=max(saldo-float(cfg["reserva"])-pend-rec_pendente,0);diario=livre/max(dias,1)
+    # Saldo realmente livre para uso: renda disponível menos gastos já feitos e compromissos ainda pendentes.
+    saldo=max(viver+extras-gastos-pend-rec_pendente,0)
+    # Contas e recorrentes já foram descontados de saldo; não descontar novamente no limite diário.
+    livre=max(saldo-float(cfg["reserva"]),0);diario=livre/max(dias,1)
     a,b,c,d=st.columns(4);a.metric("💵 Saldo para usar",money(saldo));b.metric("📅 Próximo pagamento",money(nv),f"{dias} dia(s)");c.metric("🐷 Guardar no mês",money(guardar),f"{cfg['pct']:.0f}% da renda");d.metric("📈 Limite seguro/dia",money(diario))
     st.subheader("🤖 Assistente financeiro")
     if sal<=0:st.info("Comece em Configurações e informe seus dois recebimentos.")
@@ -457,7 +460,8 @@ elif page=="🤖 Assistente IA":
     pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     fatura=sum(float(x["fatura"]) for x in cards)
     recorrentes,rec_total,rec_pendente=recurring_summary()
-    saldo=max(renda_base+extras-gastos-guardar-rec_pendente,0)
+    # O saldo informado à IA deve refletir também contas e recorrentes ainda pendentes.
+    saldo=max(renda_base+extras-gastos-guardar-pend-rec_pendente,0)
 
     categorias={}
     recentes=[]
