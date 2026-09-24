@@ -341,7 +341,7 @@ def tutorial_dialog():
     st.write("Abra **⚙️ Configurações** e informe seus recebimentos, o percentual que deseja guardar e a sua reserva mínima.")
 
     st.markdown("### 2️⃣ Registre entradas e gastos")
-    st.write("Em **➕ Registrar**, digite a descrição do lançamento e o sistema sugere uma categoria automaticamente. Confira a sugestão, ajuste se quiser e informe tipo, forma de pagamento e valor.")
+    st.write("Em **➕ Registrar**, digite a descrição e o sistema sugere uma categoria. Se você corrigir a categoria e salvar, o Meu Financeiro reaproveita sua escolha quando a mesma descrição aparecer novamente. Ele também identifica possíveis gastos recorrentes e permite transformá-los em recorrentes sem cadastrar tudo de novo.")
 
     st.markdown("### 3️⃣ Converse com o Assistente IA")
     st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. Os três botões rápidos sempre substituem a análise anterior, deixando a tela limpa; perguntas digitadas no chat continuam formando uma conversa. Os atalhos principais são calculados pelo próprio sistema e funcionam mesmo quando o serviço externo de IA está ocupado. Para perguntas livres, a IA usa somente um resumo dos valores financeiros necessários e, se o serviço estiver indisponível, o sistema responde com uma análise local.")
@@ -413,7 +413,28 @@ st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
 st.sidebar.title("💰 Meu Financeiro")
 st.sidebar.caption(st.session_state.get("email",""))
 
+def normalizar_descricao(descricao):
+    import unicodedata, re
+    texto=unicodedata.normalize("NFKD", (descricao or "").lower().strip())
+    texto="".join(c for c in texto if not unicodedata.combining(c))
+    texto=re.sub(r"[^a-z0-9 ]+", " ", texto)
+    return " ".join(texto.split())
+
+def categoria_aprendida(descricao):
+    alvo=normalizar_descricao(descricao)
+    if not alvo:
+        return None
+    historico=myrows("mov","data")
+    candidatos=[]
+    for m in historico:
+        if normalizar_descricao(m.get("descricao",""))==alvo and m.get("categoria"):
+            candidatos.append(m.get("categoria"))
+    return candidatos[-1] if candidatos else None
+
 def sugerir_categoria(descricao):
+    aprendida=categoria_aprendida(descricao)
+    if aprendida:
+        return aprendida
     texto=(descricao or "").lower().strip()
     regras={
         "Transporte":["uber","99","taxi","táxi","posto","gasolina","etanol","combustivel","combustível","pedagio","pedágio","estacionamento"],
@@ -796,8 +817,18 @@ elif page=="➕ Registrar":
     categorias=["Moradia","Alimentação","Transporte","Saúde","Lazer","Assinaturas","Compras","Outros"]
     sugerida=sugerir_categoria(desc)
     if desc.strip():
-        st.info(f"✨ Categoria sugerida: **{sugerida}**")
+        aprendida=categoria_aprendida(desc)
+        if aprendida:
+            st.success(f"🧠 Aprendi com seus lançamentos: **{aprendida}**")
+        else:
+            st.info(f"✨ Categoria sugerida: **{sugerida}**")
     idx=categorias.index(sugerida) if sugerida in categorias else len(categorias)-1
+    texto_desc=normalizar_descricao(desc)
+    termos_recorrentes=["netflix","spotify","internet","celular","telefone","academia","aluguel","condominio","icloud","google one","prime","disney","hbo","max","deezer","seguro","mensalidade","assinatura"]
+    repeticoes=sum(1 for m in myrows("mov","data") if normalizar_descricao(m.get("descricao",""))==texto_desc) if texto_desc else 0
+    parece_recorrente=bool(texto_desc) and (repeticoes>=2 or any(t in texto_desc for t in termos_recorrentes))
+    if parece_recorrente:
+        st.warning("🔁 Este lançamento parece recorrente. Você pode cadastrá-lo automaticamente como compromisso mensal ao salvar.")
     with st.form("mov",clear_on_submit=True):
         dt=st.date_input("Data",date.today())
         a,b=st.columns(2)
@@ -807,13 +838,24 @@ elif page=="➕ Registrar":
         forma=a.selectbox("Forma",["Pix","Débito","Crédito","Dinheiro","Outro"])
         valor=b.number_input("Valor",min_value=0.0)
         obs=st.text_input("Observação")
+        tornar_recorrente=st.checkbox("🔁 Também cadastrar como gasto recorrente",value=False,disabled=(tipo!="Saída"))
+        dia_rec=st.number_input("Dia do vencimento do recorrente",1,28,int(dt.day if dt.day<=28 else 28),disabled=not tornar_recorrente)
         salvar=st.form_submit_button("💾 Salvar",use_container_width=True)
     if salvar:
         if not desc.strip() or valor<=0:
             st.warning("Informe uma descrição e um valor maior que zero.")
         else:
             sb.table("mov").insert({"user_id":st.session_state.uid,"data":dt.isoformat(),"descricao":desc.strip(),"categoria":cat,"tipo":tipo,"forma":forma,"valor":valor,"obs":obs}).execute()
-            st.success("Lançamento salvo.")
+            if tornar_recorrente and tipo=="Saída":
+                existentes=myrows("recorrentes")
+                ja_existe=any(normalizar_descricao(x.get("nome",""))==normalizar_descricao(desc) and x.get("ativo",True) for x in existentes)
+                if not ja_existe:
+                    sb.table("recorrentes").insert({"user_id":st.session_state.uid,"nome":desc.strip(),"categoria":cat,"valor":valor,"dia_vencimento":int(dia_rec),"forma":forma,"ativo":True,"ultimo_pago_mes":date.today().strftime("%Y-%m")}).execute()
+                    st.success("Lançamento salvo e recorrente criado. Este mês já foi marcado como pago para não descontar duas vezes.")
+                else:
+                    st.info("Lançamento salvo. Já existe um recorrente ativo com esse nome, então não criei outro.")
+            else:
+                st.success("Lançamento salvo. Sua escolha de categoria será reaproveitada quando a mesma descrição aparecer novamente.")
             st.session_state.mov_desc=""
             st.rerun()
     st.dataframe(pd.DataFrame(myrows("mov","data")),use_container_width=True,hide_index=True)
