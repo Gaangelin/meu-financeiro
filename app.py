@@ -811,6 +811,10 @@ elif page=="🔮 Previsão":
     st.caption("As previsões são estimativas e mudam conforme você registra novas entradas, gastos e contas.")
 
 elif page=="➕ Registrar":
+    # Limpa a descrição somente no início de uma nova execução.
+    # Isso evita alterar a chave de um widget depois que ele já foi instanciado.
+    if st.session_state.pop("_limpar_mov_desc", False):
+        st.session_state["mov_desc"] = ""
     st.title("➕ Registrar")
     st.caption("Digite a descrição e o Meu Financeiro sugere uma categoria automaticamente. Você continua no controle e pode alterá-la antes de salvar.")
     desc=st.text_input("Descrição",key="mov_desc",placeholder="Ex.: Uber, iFood, Netflix, Farmácia")
@@ -856,7 +860,7 @@ elif page=="➕ Registrar":
                     st.info("Lançamento salvo. Já existe um recorrente ativo com esse nome, então não criei outro.")
             else:
                 st.success("Lançamento salvo. Sua escolha de categoria será reaproveitada quando a mesma descrição aparecer novamente.")
-            st.session_state.mov_desc=""
+            st.session_state["_limpar_mov_desc"] = True
             st.rerun()
     st.dataframe(pd.DataFrame(myrows("mov","data")),use_container_width=True,hide_index=True)
 
