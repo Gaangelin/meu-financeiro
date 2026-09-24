@@ -282,9 +282,11 @@ def login():
         try:
             video_b64 = base64.b64encode(video_path.read_bytes()).decode("utf-8")
             video_html = f"""
-            <video class="mf-bg-video" autoplay muted loop playsinline preload="auto">
+            <div id="mf-video-layer" aria-hidden="true">
+              <video class="mf-bg-video" autoplay muted loop playsinline preload="auto">
                 <source src="data:video/mp4;base64,{video_b64}" type="video/mp4">
-            </video>
+              </video>
+            </div>
             """
         except Exception:
             video_html = ""
@@ -307,18 +309,43 @@ def login():
         max-width:none!important;
         padding:0!important;
     }}
+    #mf-video-layer {{
+        position:fixed!important;
+        inset:0!important;
+        width:100vw!important;
+        height:100vh!important;
+        overflow:hidden!important;
+        z-index:0!important;
+        pointer-events:none!important;
+        margin:0!important;
+        padding:0!important;
+    }}
     .mf-bg-video {{
-        position:fixed;
-        inset:0;
-        width:100vw;
-        height:100vh;
-        object-fit:cover;
-        object-position:center;
-        z-index:0;
-        pointer-events:none;
-        /* IMPORTANTE: sem zoom, sem translate, sem animação da imagem inteira */
+        position:absolute!important;
+        inset:0!important;
+        width:100%!important;
+        height:100%!important;
+        object-fit:cover!important;
+        object-position:center center!important;
+        z-index:0!important;
+        pointer-events:none!important;
         transform:none!important;
         animation:none!important;
+    }}
+    /* Não deixa o elemento de fundo reservar um retângulo no fluxo da página */
+    div[data-testid="stMarkdownContainer"]:has(#mf-video-layer) {{
+        height:0!important;
+        min-height:0!important;
+        margin:0!important;
+        padding:0!important;
+        overflow:visible!important;
+    }}
+    div[data-testid="stElementContainer"]:has(#mf-video-layer) {{
+        height:0!important;
+        min-height:0!important;
+        margin:0!important;
+        padding:0!important;
+        overflow:visible!important;
     }}
     .stApp::before {{
         content:"";
@@ -331,8 +358,12 @@ def login():
           linear-gradient(0deg,rgba(0,0,0,.15),rgba(0,0,0,.05));
     }}
     [data-testid="stAppViewContainer"] > .main {{
-        position:relative;
-        z-index:2;
+        position:relative!important;
+        z-index:2!important;
+        background:transparent!important;
+    }}
+    [data-testid="stAppViewContainer"] {{
+        background:transparent!important;
     }}
     [data-testid="stAppViewContainer"] .block-container {{
         width:min(430px,calc(100vw - 32px))!important;
