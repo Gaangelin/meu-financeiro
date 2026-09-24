@@ -84,14 +84,17 @@ def login():
             senha=st.text_input("Crie uma senha",type="password",key="ss")
             senha2=st.text_input("Repita a senha",type="password")
             if st.form_submit_button("Criar minha conta",use_container_width=True):
-                if len(senha)<6:st.error("Use uma senha com pelo menos 6 caracteres.")
-                elif senha!=senha2:st.error("As senhas não são iguais.")
+            if st.form_submit_button("Criar minha conta", use_container_width=True):
+                if len(senha) < 6:
+                    st.error("Use uma senha com pelo menos 6 caracteres.")
+                elif senha != senha2:
+                    st.error("As senhas não são iguais.")
                 else:
                     try:
-                        sb.auth.sign_up({"email":email,"password":senha})
-                        st.success("Conta criada. Se o Supabase pedir confirmação, abra seu e-mail e confirme antes de entrar.")
-                except Exception as e:
-    st.error(f"Erro ao criar conta: {e}")
+                        sb.auth.sign_up({"email": email, "password": senha})
+                        st.success("Conta criada. Verifique seu e-mail para confirmar a conta antes de entrar.")
+                    except Exception as e:
+                        st.error(f"Erro ao criar conta: {e}")
 if "uid" not in st.session_state:
     login();st.stop()
 
