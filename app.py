@@ -365,7 +365,7 @@ def tutorial_dialog():
     st.write("Use **📉 Dívidas** para acompanhar saldo e parcelas. Em **🎯 Metas**, registre quanto deseja juntar e quanto já guardou.")
 
     st.markdown("### 🔟 Entenda a tela Início")
-    st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro por dia. O saldo e o limite usam a mesma base do Assistente IA, Saúde Financeira e Previsão, considerando gastos, contas, recorrentes, faturas e sua meta de guardar.")
+    st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro por dia. A área **🔔 Próximos vencimentos** reúne contas e recorrentes ainda pendentes, mostrando o que vence hoje, nos próximos dias ou está atrasado. O saldo e o limite usam a mesma base do Assistente IA, Saúde Financeira e Previsão, considerando gastos, contas, recorrentes, faturas e sua meta de guardar.")
 
     st.markdown("### 1️⃣1️⃣ Consulte seus relatórios")
     st.write("Em **📊 Relatórios**, veja seus lançamentos e a distribuição dos gastos por categoria.")
@@ -497,6 +497,48 @@ if page=="🏠 Início":
     elif viver>0 and gastos>=viver*.7:st.warning(f"Cuidado. Até receber, tente ficar abaixo de {money(diario)} por dia.")
     else:st.success(f"Tudo dentro do planejado. Preserve {money(guardar)} e tente gastar até {money(diario)} por dia.")
     st.subheader("Visão geral");x,y,z,w=st.columns(4);x.metric("Receita mensal",money(sal+extras));y.metric("Gastos",money(gastos));z.metric("Contas + recorrentes",money(pend+rec_pendente));w.metric("Faturas",money(fatura))
+
+    # V13 — Vencimentos inteligentes: exibe somente compromissos ainda pendentes.
+    vencimentos=[]
+    for conta in contas:
+        if conta.get("status") == "Pago":
+            continue
+        try:
+            dv=pd.to_datetime(conta.get("vencimento")).date()
+            vencimentos.append({"nome":conta.get("nome") or "Conta","valor":float(conta.get("valor") or 0),"data":dv,"origem":"Conta"})
+        except Exception:
+            pass
+    mes_atual=t.strftime("%Y-%m")
+    rec_itens,_,_=recurring_summary()
+    for rec in rec_itens:
+        if rec.get("ultimo_pago_mes") == mes_atual:
+            continue
+        try:
+            dia_rec=max(1,min(int(rec.get("dia_vencimento") or 1),calendar.monthrange(t.year,t.month)[1]))
+            dv=date(t.year,t.month,dia_rec)
+            vencimentos.append({"nome":rec.get("nome") or "Recorrente","valor":float(rec.get("valor") or 0),"data":dv,"origem":"Recorrente"})
+        except Exception:
+            pass
+    vencimentos.sort(key=lambda x:x["data"])
+    if vencimentos:
+        st.subheader("🔔 Próximos vencimentos")
+        st.caption("Contas e recorrentes ainda não pagos. Itens pagos no mês deixam de aparecer aqui automaticamente.")
+        for item in vencimentos[:8]:
+            delta=(item["data"]-t).days
+            if delta < 0:
+                texto=f"🔴 **{item['nome']} — {money(item['valor'])}** · atrasado há {abs(delta)} dia(s) · venceu em {item['data'].strftime('%d/%m')}"
+                st.error(texto)
+            elif delta == 0:
+                st.warning(f"🟠 **{item['nome']} — {money(item['valor'])}** · vence hoje")
+            elif delta <= 3:
+                st.warning(f"🟡 **{item['nome']} — {money(item['valor'])}** · vence em {delta} dia(s) ({item['data'].strftime('%d/%m')})")
+            elif delta <= 7:
+                st.info(f"🔵 **{item['nome']} — {money(item['valor'])}** · vence em {delta} dia(s) ({item['data'].strftime('%d/%m')})")
+            else:
+                st.write(f"⚪ **{item['nome']} — {money(item['valor'])}** · vence em {delta} dia(s) ({item['data'].strftime('%d/%m')})")
+    else:
+        st.success("🔔 Nenhuma conta ou recorrente pendente para vencer neste mês.")
+
     if len(mm):
         s=mm[mm.tipo=="Saída"].groupby("categoria")["valor"].sum().reset_index()
         if len(s):
