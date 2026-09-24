@@ -76,6 +76,39 @@ def ensure_config():
 APP_URL = "https://meu-financeiro-2027.streamlit.app"
 
 # Restaura a sessão autenticada do Supabase a cada rerun do Streamlit.
+
+# Ajuste visual do tutorial: fundo claro e texto com alto contraste.
+st.markdown("""
+<style>
+div[data-testid="stDialog"] div[role="dialog"] {
+    background-color: #FFFFFF !important;
+    color: #172033 !important;
+}
+div[data-testid="stDialog"] div[role="dialog"] h1,
+div[data-testid="stDialog"] div[role="dialog"] h2,
+div[data-testid="stDialog"] div[role="dialog"] h3,
+div[data-testid="stDialog"] div[role="dialog"] p,
+div[data-testid="stDialog"] div[role="dialog"] span,
+div[data-testid="stDialog"] div[role="dialog"] label {
+    color: #172033 !important;
+}
+div[data-testid="stDialog"] div[role="dialog"] [data-testid="stCaptionContainer"] p {
+    color: #5B6475 !important;
+}
+div[data-testid="stDialog"] div[role="dialog"] [data-testid="stAlert"] {
+    background-color: #EAF4FF !important;
+    border: 1px solid #B8D9FF !important;
+}
+div[data-testid="stDialog"] div[role="dialog"] [data-testid="stAlert"] p,
+div[data-testid="stDialog"] div[role="dialog"] [data-testid="stAlert"] span {
+    color: #17324D !important;
+}
+div[data-testid="stDialog"] div[role="dialog"] button[kind="primary"] p {
+    color: #FFFFFF !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 def restore_session():
     access_token = st.session_state.get("access_token")
     refresh_token = st.session_state.get("refresh_token")
