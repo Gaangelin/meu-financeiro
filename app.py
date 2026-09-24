@@ -75,6 +75,18 @@ def myrows(table, order=None):
     if order:q=q.order(order,desc=True)
     return q.execute().data or []
 
+def recurring_summary():
+    """Retorna recorrentes ativos, total mensal e valor ainda não marcado como pago no mês atual."""
+    try:
+        itens=myrows("recorrentes","dia_vencimento")
+    except Exception:
+        return [],0.0,0.0
+    mes=date.today().strftime("%Y-%m")
+    ativos=[x for x in itens if bool(x.get("ativo",True))]
+    total=sum(float(x.get("valor") or 0) for x in ativos)
+    pendente=sum(float(x.get("valor") or 0) for x in ativos if x.get("ultimo_pago_mes")!=mes)
+    return ativos,total,pendente
+
 def ensure_config():
     r=sb.table("config").select("*").eq("user_id",st.session_state.uid).execute().data
     if not r:
@@ -299,7 +311,7 @@ def tutorial_dialog():
     st.write("Em **➕ Registrar**, anote cada entrada ou saída, escolha a categoria, a forma de pagamento e o valor.")
 
     st.markdown("### 3️⃣ Converse com o Assistente IA")
-    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. A IA usa somente um resumo dos valores financeiros necessários para responder. Se o modelo principal estiver temporariamente ocupado, o aplicativo tenta automaticamente modelos alternativos disponíveis.")
+    st.write("Em **🤖 Assistente IA**, faça perguntas sobre os seus próprios números, como quanto pode gastar, onde gastou mais e como está o mês. Os três botões rápidos sempre substituem a análise anterior, deixando a tela limpa; perguntas digitadas no chat continuam formando uma conversa. A IA usa somente um resumo dos valores financeiros necessários para responder e tenta uma alternativa quando o serviço está temporariamente ocupado.")
 
     st.markdown("### 4️⃣ Acompanhe sua Saúde Financeira")
     st.write("Em **🚦 Saúde Financeira**, veja quanto da sua renda está comprometida e acompanhe o indicador **Tranquilo, Atenção ou Orçamento apertado**.")
@@ -307,19 +319,22 @@ def tutorial_dialog():
     st.markdown("### 5️⃣ Veja sua Previsão Financeira")
     st.write("Em **🔮 Previsão**, acompanhe uma estimativa do fim do mês com base no seu ritmo de gastos, contas pendentes e meta de economia. Você também pode comparar três cenários.")
 
-    st.markdown("### 6️⃣ Organize suas contas")
+    st.markdown("### 6️⃣ Cadastre gastos recorrentes")
+    st.write("Em **🔁 Recorrentes**, cadastre compromissos que se repetem todos os meses, como internet, streaming, academia e mensalidades. Marque como pago no mês para evitar que o valor continue aparecendo como compromisso pendente.")
+
+    st.markdown("### 7️⃣ Organize suas contas")
     st.write("Em **🧾 Contas**, cadastre contas a pagar, vencimentos e marque cada uma como Pendente, Pago ou Atrasado.")
 
-    st.markdown("### 7️⃣ Acompanhe seus cartões")
+    st.markdown("### 8️⃣ Acompanhe seus cartões")
     st.write("Em **💳 Cartões**, informe limite, fatura atual, dia de fechamento e vencimento.")
 
-    st.markdown("### 8️⃣ Controle dívidas e objetivos")
+    st.markdown("### 9️⃣ Controle dívidas e objetivos")
     st.write("Use **📉 Dívidas** para acompanhar saldo e parcelas. Em **🎯 Metas**, registre quanto deseja juntar e quanto já guardou.")
 
-    st.markdown("### 9️⃣ Entenda a tela Início")
+    st.markdown("### 🔟 Entenda a tela Início")
     st.write("Em **🏠 Início**, acompanhe saldo disponível, próximo pagamento, quanto guardar e o limite seguro de gasto por dia. O Assistente Financeiro também mostra alertas importantes.")
 
-    st.markdown("### 🔟 Consulte seus relatórios")
+    st.markdown("### 1️⃣1️⃣ Consulte seus relatórios")
     st.write("Em **📊 Relatórios**, veja seus lançamentos e a distribuição dos gastos por categoria.")
 
     st.info("💡 Você pode abrir este tutorial novamente a qualquer momento pelo botão **❓ Tutorial / Ajuda** no menu lateral.")
@@ -362,7 +377,7 @@ st.session_state.tutorial_oculto = bool(cfg.get("tutorial_oculto", False))
 
 st.sidebar.title("💰 Meu Financeiro")
 st.sidebar.caption(st.session_state.get("email",""))
-page=st.sidebar.radio("Menu",["🏠 Início","🤖 Assistente IA","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
+page=st.sidebar.radio("Menu",["🏠 Início","🤖 Assistente IA","🚦 Saúde Financeira","🔮 Previsão","➕ Registrar","🔁 Recorrentes","🧾 Contas","💳 Cartões","📉 Dívidas","🎯 Metas","📊 Relatórios","⚙️ Configurações"])
 
 if st.sidebar.button("❓ Tutorial / Ajuda", use_container_width=True):
     tutorial_dialog()
@@ -395,7 +410,8 @@ if page=="🏠 Início":
     nd,nv=nextpay(cfg["dia2"],cfg["rec1"],cfg["rec2"]);dias=max((nd-t).days,0)
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
-    livre=max(saldo-float(cfg["reserva"])-pend,0);diario=livre/max(dias,1)
+    _,rec_total,rec_pendente=recurring_summary()
+    livre=max(saldo-float(cfg["reserva"])-pend-rec_pendente,0);diario=livre/max(dias,1)
     a,b,c,d=st.columns(4);a.metric("💵 Saldo para usar",money(saldo));b.metric("📅 Próximo pagamento",money(nv),f"{dias} dia(s)");c.metric("🐷 Guardar no mês",money(guardar),f"{cfg['pct']:.0f}% da renda");d.metric("📈 Limite seguro/dia",money(diario))
     st.subheader("🤖 Assistente financeiro")
     if sal<=0:st.info("Comece em Configurações e informe seus dois recebimentos.")
@@ -404,7 +420,7 @@ if page=="🏠 Início":
     elif viver>0 and gastos>=viver*.9:st.error("Não gaste muito: você já utilizou quase todo o dinheiro planejado.")
     elif viver>0 and gastos>=viver*.7:st.warning(f"Cuidado. Até receber, tente ficar abaixo de {money(diario)} por dia.")
     else:st.success(f"Tudo dentro do planejado. Preserve {money(guardar)} e tente gastar até {money(diario)} por dia.")
-    st.subheader("Visão geral");x,y,z,w=st.columns(4);x.metric("Receita mensal",money(sal+extras));y.metric("Gastos",money(gastos));z.metric("Contas pendentes",money(pend));w.metric("Faturas",money(fatura))
+    st.subheader("Visão geral");x,y,z,w=st.columns(4);x.metric("Receita mensal",money(sal+extras));y.metric("Gastos",money(gastos));z.metric("Contas + recorrentes",money(pend+rec_pendente));w.metric("Faturas",money(fatura))
     if len(mm):
         s=mm[mm.tipo=="Saída"].groupby("categoria")["valor"].sum().reset_index()
         if len(s):
@@ -440,7 +456,8 @@ elif page=="🤖 Assistente IA":
     metas=myrows("metas")
     pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     fatura=sum(float(x["fatura"]) for x in cards)
-    saldo=max(renda_base+extras-gastos-guardar,0)
+    recorrentes,rec_total,rec_pendente=recurring_summary()
+    saldo=max(renda_base+extras-gastos-guardar-rec_pendente,0)
 
     categorias={}
     recentes=[]
@@ -463,6 +480,9 @@ elif page=="🤖 Assistente IA":
         "saldo_estimado_para_uso":saldo,
         "contas_pendentes":pend,
         "faturas_cadastradas":fatura,
+        "recorrentes_mensais":rec_total,
+        "recorrentes_pendentes_no_mes":rec_pendente,
+        "recorrentes":[{"nome":x.get("nome"),"categoria":x.get("categoria"),"valor":x.get("valor"),"dia_vencimento":x.get("dia_vencimento"),"pago_no_mes":x.get("ultimo_pago_mes")==t.strftime("%Y-%m")} for x in recorrentes],
         "reserva_minima":float(cfg["reserva"]),
         "gastos_por_categoria":categorias,
         "dividas":[{"nome":x.get("nome"),"saldo":x.get("saldo"),"parcela":x.get("parcela"),"restantes":x.get("restantes")} for x in dividas],
@@ -473,17 +493,21 @@ elif page=="🤖 Assistente IA":
     a,b,c,d=st.columns(4)
     a.metric("💰 Renda base",money(renda_base))
     b.metric("📤 Gastos do mês",money(gastos))
-    c.metric("🧾 Contas pendentes",money(pend))
+    c.metric("🧾 Contas + recorrentes",money(pend+rec_pendente))
     d.metric("💳 Faturas",money(fatura))
+    if rec_total>0: st.caption(f"🔁 Recorrentes cadastrados: {money(rec_total)}/mês • ainda pendentes neste mês: {money(rec_pendente)}")
 
     st.info("🔒 Para responder, a IA recebe apenas um resumo dos seus valores financeiros. Descrições individuais das suas movimentações não são enviadas. Nunca informe senha bancária, CVV ou número completo de cartão no chat.")
 
     sugestoes=st.columns(3)
     if sugestoes[0].button("💸 Quanto posso gastar?",use_container_width=True):
+        st.session_state.ai_history=[]
         st.session_state.ai_question="Quanto posso gastar até o fim deste mês sem comprometer minha meta de guardar e minha reserva?"
     if sugestoes[1].button("📊 Onde gasto mais?",use_container_width=True):
+        st.session_state.ai_history=[]
         st.session_state.ai_question="Analise onde estou gastando mais neste mês e explique de forma curta."
     if sugestoes[2].button("🔮 Como está meu mês?",use_container_width=True):
+        st.session_state.ai_history=[]
         st.session_state.ai_question="Faça um resumo da minha situação financeira neste mês e destaque os pontos que merecem atenção."
 
     pergunta=st.chat_input("Pergunte algo sobre suas finanças...")
@@ -509,7 +533,7 @@ elif page=="🤖 Assistente IA":
             try:
                 from google import genai
                 from google.genai import types
-                client=genai.Client(api_key=api_key)
+                client=genai.Client(api_key=api_key,http_options=types.HttpOptions(timeout=25000))
                 instrucoes="""Você é o Assistente Financeiro do aplicativo Meu Financeiro.
 Responda sempre em português do Brasil, de forma clara, curta e prática.
 Use SOMENTE os dados financeiros fornecidos no contexto. Se faltar informação, diga que não há dados suficientes.
@@ -517,14 +541,15 @@ Não invente valores. Não prometa retornos. Não faça movimentações financei
 Quando houver cálculo, explique o resultado de forma simples.
 Trate projeções como estimativas, não garantias.
 Nunca peça senha bancária, CVV, número completo de cartão ou credenciais.
-Ajude o usuário a entender opções e consequências, preservando a decisão final dele."""
+Ajude o usuário a entender opções e consequências, preservando a decisão final dele.
+Use Markdown simples e não coloque valores monetários entre crases ou blocos de código."""
                 # Envia somente um resumo financeiro; descrições individuais de movimentações
                 # não são enviadas ao provedor de IA na versão gratuita.
                 resumo_ia={k:v for k,v in resumo.items() if k!="movimentacoes_recentes"}
                 contexto="DADOS FINANCEIROS RESUMIDOS DO USUÁRIO:\n"+json.dumps(resumo_ia,ensure_ascii=False,default=str)
                 # Tenta modelos gratuitos em sequência. Isso reduz falhas temporárias
                 # de capacidade sem expor mensagens técnicas ao usuário final.
-                modelos=["gemini-3.8-flash","gemini-3.7-flash","gemini-3.5-flash-lite"]
+                modelos=["gemini-3.8-flash","gemini-3.6-flash"]
                 resposta=None
                 ultimo_erro=None
                 for modelo in modelos:
@@ -534,8 +559,7 @@ Ajude o usuário a entender opções e consequências, preservando a decisão fi
                             contents=contexto+"\n\nPERGUNTA DO USUÁRIO:\n"+pergunta_atual,
                             config=types.GenerateContentConfig(
                                 system_instruction=instrucoes,
-                                max_output_tokens=700,
-                                temperature=0.3
+                                max_output_tokens=700
                             )
                         )
                         if getattr(resp,"text",None):
@@ -550,6 +574,8 @@ Ajude o usuário a entender opções e consequências, preservando a decisão fi
             except Exception:
                 resposta="Não consegui acessar o Assistente IA agora. Tente novamente em alguns instantes."
 
+        # Remove cercas de código acidentais que podem prejudicar a leitura de valores.
+        resposta=resposta.replace("```markdown","").replace("```","").strip()
         with st.chat_message("assistant"):
             st.markdown(resposta)
         st.session_state.ai_history.append({"role":"user","content":pergunta_atual})
@@ -577,7 +603,8 @@ elif page=="🚦 Saúde Financeira":
     guardar=renda_base*float(cfg["pct"])/100
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
     cards=myrows("cartoes");fatura=sum(float(x["fatura"]) for x in cards)
-    compromissos=gastos+pend+fatura
+    _,rec_total,rec_pendente=recurring_summary()
+    compromissos=gastos+pend+fatura+rec_pendente
     livre=renda-guardar-compromissos
     taxa=(compromissos/renda*100) if renda>0 else 0
 
@@ -602,6 +629,7 @@ elif page=="🚦 Saúde Financeira":
     st.write(f"**Gastos registrados:** {money(gastos)}")
     st.write(f"**Contas pendentes:** {money(pend)}")
     st.write(f"**Faturas cadastradas:** {money(fatura)}")
+    st.write(f"**Recorrentes ainda pendentes no mês:** {money(rec_pendente)}")
     if renda>0:
         if livre>float(cfg["reserva"]): st.success(f"Após compromissos e sua meta de economia, a projeção livre é de {money(livre)}.")
         elif livre>0: st.warning(f"A projeção livre é de {money(livre)}, próxima ou abaixo da sua reserva mínima.")
@@ -625,7 +653,8 @@ elif page=="🔮 Previsão":
     gasto_estimado=media_dia*dias_mes
     guardar=renda*float(cfg["pct"])/100
     contas=myrows("contas");pend=sum(float(x["valor"]) for x in contas if x["status"]!="Pago")
-    base=renda+extras-pend-guardar
+    _,rec_total,rec_pendente=recurring_summary()
+    base=renda+extras-pend-rec_pendente-guardar
     projecao=base-gasto_estimado
     faltam=max(dias_mes-t.day,0)
 
@@ -663,6 +692,52 @@ elif page=="➕ Registrar":
             sb.table("mov").insert({"user_id":st.session_state.uid,"data":dt.isoformat(),"descricao":desc,"categoria":cat,"tipo":tipo,"forma":forma,"valor":valor,"obs":obs}).execute();st.success("Salvo.")
     st.dataframe(pd.DataFrame(myrows("mov","data")),use_container_width=True,hide_index=True)
 
+elif page=="🔁 Recorrentes":
+    st.title("🔁 Gastos Recorrentes")
+    st.caption("Cadastre compromissos mensais. Eles entram automaticamente no planejamento enquanto não forem marcados como pagos no mês.")
+    mes_atual=date.today().strftime("%Y-%m")
+    with st.form("recorrente",clear_on_submit=True):
+        n=st.text_input("Nome",placeholder="Ex.: Internet, Netflix, Academia")
+        a,b=st.columns(2)
+        cat=a.selectbox("Categoria",["Moradia","Alimentação","Transporte","Saúde","Lazer","Assinaturas","Compras","Outros"],key="rec_cat")
+        valor=b.number_input("Valor mensal",min_value=0.0,step=1.0)
+        a,b=st.columns(2)
+        dia=a.number_input("Dia do vencimento",1,28,10)
+        forma=b.selectbox("Forma de pagamento",["Pix","Débito","Crédito","Dinheiro","Boleto","Outro"],key="rec_forma")
+        if st.form_submit_button("➕ Adicionar recorrente",use_container_width=True):
+            if not n.strip() or valor<=0:
+                st.warning("Informe o nome e um valor maior que zero.")
+            else:
+                sb.table("recorrentes").insert({"user_id":st.session_state.uid,"nome":n.strip(),"categoria":cat,"valor":valor,"dia_vencimento":int(dia),"forma":forma,"ativo":True,"ultimo_pago_mes":None}).execute()
+                st.success("Gasto recorrente adicionado.");st.rerun()
+
+    itens,total,pendente=recurring_summary()
+    a,b,c=st.columns(3);a.metric("🔁 Total mensal",money(total));b.metric("⏳ Pendente neste mês",money(pendente));c.metric("✅ Já considerado pago",money(max(total-pendente,0)))
+    if itens:
+        st.subheader("Seus recorrentes")
+        for x in itens:
+            pago=x.get("ultimo_pago_mes")==mes_atual
+            c1,c2,c3,c4=st.columns([4,2,2,2])
+            c1.write(f"**{x.get('nome','')}**  ·  {x.get('categoria','')}")
+            c2.write(money(x.get("valor",0)))
+            c3.write(f"Dia {x.get('dia_vencimento','-')}")
+            if pago:
+                if c4.button("↩️ Desmarcar",key=f"unpay_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"ultimo_pago_mes":None}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+            else:
+                if c4.button("✅ Pago no mês",key=f"pay_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"ultimo_pago_mes":mes_atual}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+            with st.expander(f"Editar / desativar — {x.get('nome','')}"):
+                novo_valor=st.number_input("Valor",min_value=0.0,value=float(x.get("valor") or 0),key=f"rv_{x['id']}")
+                novo_dia=st.number_input("Vencimento",1,28,int(x.get("dia_vencimento") or 10),key=f"rd_{x['id']}")
+                e1,e2=st.columns(2)
+                if e1.button("💾 Salvar",key=f"rs_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"valor":novo_valor,"dia_vencimento":int(novo_dia)}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+                if e2.button("🗑️ Desativar",key=f"rx_{x['id']}",use_container_width=True):
+                    sb.table("recorrentes").update({"ativo":False}).eq("id",x["id"]).eq("user_id",st.session_state.uid).execute();st.rerun()
+    else:
+        st.info("Nenhum gasto recorrente cadastrado ainda.")
+
 elif page=="🧾 Contas":
     st.title("🧾 Contas")
     with st.form("conta",clear_on_submit=True):
@@ -693,6 +768,8 @@ elif page=="🎯 Metas":
 
 elif page=="📊 Relatórios":
     st.title("📊 Relatórios");d=pd.DataFrame(myrows("mov","data"))
+    _,rec_total,rec_pendente=recurring_summary()
+    st.caption(f"🔁 Recorrentes: {money(rec_total)}/mês • pendentes neste mês: {money(rec_pendente)}")
     if len(d):
         s=d[d.tipo=="Saída"].groupby("categoria")["valor"].sum();st.bar_chart(s);st.dataframe(d,use_container_width=True,hide_index=True)
     else:st.info("Ainda não há lançamentos.")
