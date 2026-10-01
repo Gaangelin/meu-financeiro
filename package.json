@@ -1,0 +1,12 @@
+{
+  "name": "mefi-backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "MEFI_Backend_Novo.js",
+  "scripts": {
+    "start": "node MEFI_Backend_Novo.js"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}
